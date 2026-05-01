@@ -10,7 +10,9 @@ import com.kshimono.wifianalyzer.data.mist.MistRepository
 import com.kshimono.wifianalyzer.data.mist.MistResult
 import com.kshimono.wifianalyzer.data.mist.MistSite
 import com.kshimono.wifianalyzer.data.settings.SettingsRepository
+import android.util.Log
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+private const val TAG = "SettingsVM"
 
 sealed class SyncStatus {
     object Idle : SyncStatus()
@@ -73,19 +77,23 @@ class SettingsViewModel @Inject constructor(
     private val _arubaSites = MutableStateFlow<List<ArubaSite>>(emptyList())
     val arubaSites: StateFlow<List<ArubaSite>> = _arubaSites.asStateFlow()
 
-    init {
-        viewModelScope.launch { _apCount.value      = mistRepository.getApCount()  }
-        viewModelScope.launch { _arubaApCount.value = arubaRepository.getApCount() }
+    private val exceptionHandler = CoroutineExceptionHandler { _, t ->
+        Log.e(TAG, "Uncaught exception", t)
     }
 
-    fun updateMistToken(value: String)       { viewModelScope.launch { settings.setMistToken(value)       } }
-    fun updateMistRegion(value: String)      { viewModelScope.launch { settings.setMistRegion(value)      } }
-    fun updateArubaClientId(value: String)    { viewModelScope.launch { settings.setArubaClientId(value)    } }
-    fun updateArubaClientSecret(value: String){ viewModelScope.launch { settings.setArubaClientSecret(value) } }
-    fun updateArubaCluster(value: String)     { viewModelScope.launch { settings.setArubaCluster(value)     } }
+    init {
+        viewModelScope.launch(exceptionHandler) { _apCount.value      = mistRepository.getApCount()  }
+        viewModelScope.launch(exceptionHandler) { _arubaApCount.value = arubaRepository.getApCount() }
+    }
+
+    fun updateMistToken(value: String)        { viewModelScope.launch(exceptionHandler) { settings.setMistToken(value)        } }
+    fun updateMistRegion(value: String)       { viewModelScope.launch(exceptionHandler) { settings.setMistRegion(value)       } }
+    fun updateArubaClientId(value: String)    { viewModelScope.launch(exceptionHandler) { settings.setArubaClientId(value)    } }
+    fun updateArubaClientSecret(value: String){ viewModelScope.launch(exceptionHandler) { settings.setArubaClientSecret(value) } }
+    fun updateArubaCluster(value: String)     { viewModelScope.launch(exceptionHandler) { settings.setArubaCluster(value)     } }
 
     fun testConnection() {
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             _connectionTestResult.value = "Testing…"
             _orgs.value = emptyList()
             val token  = mistToken.value
@@ -106,7 +114,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun selectOrg(org: MistOrg) {
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             settings.setMistOrgId(org.id)
             settings.setMistOrgName(org.name)
             settings.setMistSiteId("all")
@@ -117,7 +125,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun loadSites() {
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             val orgId = mistOrgId.value
             if (orgId.isBlank()) return@launch
             when (val result = mistRepository.getSites(orgId)) {
@@ -128,14 +136,14 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun selectSite(siteId: String, siteName: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             settings.setMistSiteId(siteId)
             settings.setMistSiteName(siteName)
         }
     }
 
     fun syncAps() {
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             _syncStatus.value = SyncStatus.Syncing
             val orgId  = mistOrgId.value
             val siteId = mistSiteId.value
@@ -156,13 +164,13 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun testArubaConnection() {
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             _arubaConnectionTestResult.value = "Testing…"
             _arubaSites.value = emptyList()
             val clientId     = arubaClientId.value
             val clientSecret = arubaClientSecret.value
             val cluster      = arubaCluster.value
-            android.util.Log.d("ArubaApi", "testConnection: clientId=${clientId.take(8)} len=${clientId.length}, cluster=$cluster")
+            Log.d(TAG, "testConnection: clientId=${clientId.take(8)} len=${clientId.length}, cluster=$cluster")
             when (val result = arubaRepository.testConnection(clientId, clientSecret, cluster)) {
                 is ArubaResult.Success -> {
                     _arubaConnectionTestResult.value = "✓ Connected: ${result.data} BSSIDs found"
@@ -175,7 +183,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun loadArubaSites() {
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             when (val result = arubaRepository.getSites()) {
                 is ArubaResult.Success -> _arubaSites.value = result.data
                 is ArubaResult.Error   -> { /* keep empty */ }
@@ -184,14 +192,14 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun selectArubaSite(siteId: String, siteName: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             settings.setArubaSiteId(siteId)
             settings.setArubaSiteName(siteName)
         }
     }
 
     fun syncArubaAps() {
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             _arubaSyncStatus.value = SyncStatus.Syncing
             when (val result = arubaRepository.syncBssids()) {
                 is ArubaResult.Success -> {

@@ -49,6 +49,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,10 +57,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kshimono.wifianalyzer.domain.model.BssidSummary
 import com.kshimono.wifianalyzer.ui.snapshot.SaveSnapshotDialog
@@ -82,6 +87,19 @@ fun ScanScreen(
     val sortOrder        by viewModel.sortOrder.collectAsStateWithLifecycle()
     val autoScanEnabled  by viewModel.autoScanEnabled.collectAsStateWithLifecycle()
     val autoScanInterval by viewModel.autoScanInterval.collectAsStateWithLifecycle()
+    val wifiEnabled      by viewModel.wifiEnabled.collectAsStateWithLifecycle()
+    val hasPermission    by viewModel.hasPermission.collectAsStateWithLifecycle()
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshSystemState()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val context = LocalContext.current
 
     var showSaveDialog by remember { mutableStateOf(false) }
     var selectedBssids by remember { mutableStateOf(emptySet<String>()) }
@@ -192,6 +210,22 @@ fun ScanScreen(
                 onSort     = viewModel::setSortOrder,
             )
 
+            if (!hasPermission) {
+                WarningBanner(
+                    message     = "Location permission required for Wi-Fi scanning",
+                    actionLabel = "Open Settings",
+                    onAction    = {
+                        val intent = android.content.Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.fromParts("package", context.packageName, null),
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent)
+                    },
+                )
+            }
+            if (!wifiEnabled) {
+                WarningBanner(message = "Wi-Fi is disabled. Please enable Wi-Fi.")
+            }
             if (throttled) {
                 ThrottleBanner()
             }
@@ -518,5 +552,38 @@ private fun ThrottleBanner() {
             color    = Color(0xFF5D4037),
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
         )
+    }
+}
+
+@Composable
+private fun WarningBanner(
+    message:     String,
+    actionLabel: String? = null,
+    onAction:    (() -> Unit)? = null,
+) {
+    Surface(
+        color    = MaterialTheme.colorScheme.errorContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier          = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text      = message,
+                style     = MaterialTheme.typography.bodySmall,
+                color     = MaterialTheme.colorScheme.onErrorContainer,
+                modifier  = Modifier.weight(1f),
+            )
+            if (actionLabel != null && onAction != null) {
+                androidx.compose.material3.TextButton(onClick = onAction) {
+                    Text(
+                        text  = actionLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
     }
 }

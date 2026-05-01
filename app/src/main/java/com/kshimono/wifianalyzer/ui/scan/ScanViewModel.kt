@@ -1,5 +1,11 @@
 package com.kshimono.wifianalyzer.ui.scan
 
+import android.Manifest
+import android.content.Context
+import android.net.wifi.WifiManager
+import android.util.Log
+import androidx.core.content.ContextCompat
+import androidx.core.content.PermissionChecker
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kshimono.wifianalyzer.data.wifi.RssiHistory
@@ -7,6 +13,8 @@ import com.kshimono.wifianalyzer.data.wifi.WifiScanner
 import com.kshimono.wifianalyzer.domain.model.BssidSummary
 import com.kshimono.wifianalyzer.domain.model.WifiObservation
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,10 +27,31 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+private const val TAG = "ScanVM"
+
 @HiltViewModel
 class ScanViewModel @Inject constructor(
     private val scanner: WifiScanner,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
+
+    private val exceptionHandler = CoroutineExceptionHandler { _, t ->
+        Log.e(TAG, "Uncaught exception", t)
+    }
+
+    private val _wifiEnabled = MutableStateFlow(true)
+    val wifiEnabled: StateFlow<Boolean> = _wifiEnabled.asStateFlow()
+
+    private val _hasPermission = MutableStateFlow(true)
+    val hasPermission: StateFlow<Boolean> = _hasPermission.asStateFlow()
+
+    fun refreshSystemState() {
+        val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        _wifiEnabled.value = wifiManager.isWifiEnabled
+        _hasPermission.value = ContextCompat.checkSelfPermission(
+            appContext, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PermissionChecker.PERMISSION_GRANTED
+    }
 
     private val _filterEssid    = MutableStateFlow("")
     val filterEssid: StateFlow<String> = _filterEssid.asStateFlow()
@@ -80,6 +109,7 @@ class ScanViewModel @Inject constructor(
     private var autoScanJob: Job? = null
 
     init {
+        refreshSystemState()
         scanner.getScanResults()
     }
 
@@ -107,7 +137,7 @@ class ScanViewModel @Inject constructor(
         scanner.getAllRssiHistory().filter { it.key in bssids }
 
     private fun startAutoScanLoop() {
-        autoScanJob = viewModelScope.launch {
+        autoScanJob = viewModelScope.launch(exceptionHandler) {
             while (isActive) {
                 scanner.startScan()
                 delay(_autoScanInterval.value * 1_000L)

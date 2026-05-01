@@ -10,6 +10,8 @@ import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.statement.HttpResponse
+import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,6 +19,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -85,6 +88,31 @@ class ArubaApiClient @Inject constructor() {
     }
 
 
+    private fun tokenHttpError(status: Int, body: String): String {
+        val errorCode = runCatching { JSONObject(body).optString("error") }.getOrDefault("")
+        return when {
+            errorCode == "unauthorized_request" -> "Invalid Client ID or Secret"
+            status == 401 -> "Authentication failed (401)"
+            status == 403 -> "Access forbidden (403)"
+            status == 429 -> "Rate limit exceeded. Please wait."
+            status >= 500 -> "HPE SSO server error (HTTP $status)"
+            else -> "Token request failed (HTTP $status)"
+        }
+    }
+
+    private fun apiHttpError(status: Int): String = when (status) {
+        401  -> "Authentication failed. Re-check credentials."
+        403  -> "Insufficient permissions"
+        404  -> "Resource not found"
+        429  -> "Rate limit exceeded. Please wait."
+        else -> if (status >= 500) "Aruba server error (HTTP $status)" else "HTTP error $status"
+    }
+
+    private fun networkError(e: Throwable): String = when (e) {
+        is SocketTimeoutException -> "Connection timeout. Check network."
+        else -> "Network error: ${e.message}"
+    }
+
     fun configure(clientId: String, clientSecret: String, cluster: String) {
         if (this.clientId != clientId || this.clientSecret != clientSecret || this.baseUrl != "https://$cluster") {
             // Credentials changed — invalidate token
@@ -119,7 +147,7 @@ class ArubaApiClient @Inject constructor() {
                     ?.bufferedReader()?.readText() ?: ""
                 Log.d(TAG, "Token status: $status")
                 Log.d(TAG, "Token body: ${text.take(300)}")
-                if (status != 200) throw Exception("Token request failed ($status): $text")
+                if (status != 200) throw Exception(tokenHttpError(status, text))
                 text
             } finally {
                 conn.disconnect()
@@ -136,13 +164,15 @@ class ArubaApiClient @Inject constructor() {
 
     suspend fun getSites(): ArubaResult<List<ArubaSite>> = runCatching {
         ensureValidToken()
-        val resp = http.get("$baseUrl/network-monitoring/v1/sites-health") {
+        val resp: HttpResponse = http.get("$baseUrl/network-monitoring/v1/sites-health") {
             header("Authorization", "Bearer $accessToken")
             parameter("limit", 1000)
-        }.body<ArubaSiteResponse>()
-        Log.d(TAG, "Fetched ${resp.items.size} sites")
-        ArubaResult.Success(resp.items)
-    }.getOrElse { e -> ArubaResult.Error(e.message ?: "Failed to fetch sites") }
+        }
+        if (!resp.status.isSuccess()) return ArubaResult.Error(apiHttpError(resp.status.value))
+        val body = resp.body<ArubaSiteResponse>()
+        Log.d(TAG, "Fetched ${body.items.size} sites")
+        ArubaResult.Success(body.items)
+    }.getOrElse { e -> ArubaResult.Error(networkError(e)) }
 
     suspend fun getBssidsBySite(siteId: String): ArubaResult<List<ArubaBssid>> = runCatching {
         ensureValidToken()
@@ -150,19 +180,21 @@ class ArubaApiClient @Inject constructor() {
         var offset = 0
         val limit  = 1000
         while (true) {
-            val data = http.get("$baseUrl/network-monitoring/v1/bssids") {
+            val resp: HttpResponse = http.get("$baseUrl/network-monitoring/v1/bssids") {
                 header("Authorization", "Bearer $accessToken")
                 parameter("filter", "siteId eq $siteId")
                 parameter("limit",  limit)
                 parameter("offset", offset)
-            }.body<ArubaBssidResponse>()
+            }
+            if (!resp.status.isSuccess()) return ArubaResult.Error(apiHttpError(resp.status.value))
+            val data = resp.body<ArubaBssidResponse>()
             allItems.addAll(data.items)
             Log.d(TAG, "Fetched ${data.items.size} BSSIDs for siteId=$siteId (offset=$offset, total=${data.total})")
             if (data.next == null || allItems.size >= data.total) break
             offset += limit
         }
         ArubaResult.Success(allItems)
-    }.getOrElse { e -> ArubaResult.Error(e.message ?: "Failed to fetch BSSIDs for site") }
+    }.getOrElse { e -> ArubaResult.Error(networkError(e)) }
 
     suspend fun testConnection(clientId: String, clientSecret: String, cluster: String): ArubaResult<Int> =
         runCatching {
@@ -172,7 +204,7 @@ class ArubaApiClient @Inject constructor() {
                 is ArubaResult.Success -> ArubaResult.Success(result.data.size)
                 is ArubaResult.Error   -> ArubaResult.Error(result.message)
             }
-        }.getOrElse { e -> ArubaResult.Error(e.message ?: "Connection failed") }
+        }.getOrElse { e -> ArubaResult.Error(networkError(e)) }
 
     suspend fun getAllBssids(): ArubaResult<List<ArubaBssid>> = runCatching {
         ensureValidToken()
@@ -180,16 +212,18 @@ class ArubaApiClient @Inject constructor() {
         var offset = 0
         val limit  = 1000
         while (true) {
-            val data = http.get("$baseUrl/network-monitoring/v1/bssids") {
+            val resp: HttpResponse = http.get("$baseUrl/network-monitoring/v1/bssids") {
                 header("Authorization", "Bearer $accessToken")
                 parameter("limit",  limit)
                 parameter("offset", offset)
-            }.body<ArubaBssidResponse>()
+            }
+            if (!resp.status.isSuccess()) return ArubaResult.Error(apiHttpError(resp.status.value))
+            val data = resp.body<ArubaBssidResponse>()
             allItems.addAll(data.items)
             Log.d(TAG, "Fetched ${data.items.size} BSSIDs (offset=$offset, total=${data.total})")
             if (data.next == null || allItems.size >= data.total) break
             offset += limit
         }
         ArubaResult.Success(allItems)
-    }.getOrElse { e -> ArubaResult.Error(e.message ?: "Failed to fetch BSSIDs") }
+    }.getOrElse { e -> ArubaResult.Error(networkError(e)) }
 }

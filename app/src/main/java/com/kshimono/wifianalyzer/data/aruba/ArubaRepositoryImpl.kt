@@ -94,6 +94,7 @@ class ArubaRepositoryImpl @Inject constructor(
                         lastSynced      = now,
                     )
                 }
+                // Only replace DB after successful fetch
                 dao.deleteAll()
                 dao.insertAll(entities)
                 refreshCache()

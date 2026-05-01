@@ -102,6 +102,7 @@ class MistRepositoryImpl @Inject constructor(
             )
         }
 
+        // Only replace DB after successful fetch
         dao.deleteByOrgId(orgId)
         dao.insertAll(entities)
         refreshCache()

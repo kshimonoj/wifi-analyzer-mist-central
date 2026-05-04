@@ -93,6 +93,18 @@ app/
     └── settings/      # SettingsScreen, SettingsViewModel
 ```
 
+## Survey Analyzer (Web Tool)
+
+A Streamlit-based analysis tool for survey data exported from this app.
+
+```bash
+cd analyzer
+docker-compose up
+# Open http://localhost:8501
+```
+
+See [analyzer/README.md](analyzer/README.md) for details.
+
 ## Screenshots
 
 *Coming soon*

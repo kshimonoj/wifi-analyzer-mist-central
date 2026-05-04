@@ -10,10 +10,47 @@ import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.SocketTimeoutException
 import javax.inject.Inject
 import javax.inject.Singleton
+
+@Serializable
+data class MistRadioStat(
+    val channel: Int? = null,
+    val bandwidth: Int? = null,
+    val power: Int? = null,
+    val mac: String? = null,
+    val usage: String? = null,
+)
+
+@Serializable
+data class MistApStats(
+    val id: String? = null,
+    val name: String? = null,
+    val mac: String? = null,
+    val model: String? = null,
+    val x: Double? = null,
+    val y: Double? = null,
+    @SerialName("map_id") val mapId: String? = null,
+    val status: String? = null,
+    @SerialName("radio_stat") val radioStat: Map<String, MistRadioStat>? = null,
+)
+
+@Serializable
+data class MistMap(
+    val id: String,
+    val name: String,
+    val type: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    @SerialName("width_m")  val widthM:  Double? = null,
+    @SerialName("height_m") val heightM: Double? = null,
+    @SerialName("site_id")  val siteId:  String? = null,
+    val url: String? = null,
+)
 
 private const val TAG = "MistApi"
 
@@ -88,4 +125,10 @@ class MistApiClient @Inject constructor() {
 
     suspend fun getRadioMacs(orgId: String): MistResult<List<MistRadioMac>> =
         safeGet("${baseUrl()}/orgs/$orgId/devices/radio_macs")
+
+    suspend fun getMaps(siteId: String): MistResult<List<MistMap>> =
+        safeGet("${baseUrl()}/sites/$siteId/maps")
+
+    suspend fun getApStats(siteId: String): MistResult<List<MistApStats>> =
+        safeGet("${baseUrl()}/sites/$siteId/stats/devices?type=ap")
 }

@@ -1,5 +1,9 @@
 package com.kshimono.wifianalyzer.ui.settings
 
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,12 +18,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +39,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,12 +50,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kshimono.wifianalyzer.data.aruba.ArubaBuilding
+import com.kshimono.wifianalyzer.data.aruba.ArubaFloor
+import com.kshimono.wifianalyzer.data.db.entities.FloorMapEntity
+import com.kshimono.wifianalyzer.data.mist.MistMap
 
 private val ARUBA_CLUSTERS = listOf(
     "Internal"     to "internal.api.central.arubanetworks.com",
@@ -103,6 +118,59 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
     val arubaSiteId       by viewModel.arubaSiteId.collectAsStateWithLifecycle()
     val arubaSiteName     by viewModel.arubaSiteName.collectAsStateWithLifecycle()
 
+    val floorMaps        by viewModel.floorMaps.collectAsStateWithLifecycle()
+    val mistMaps         by viewModel.mistMaps.collectAsStateWithLifecycle()
+    val arubaBuildings   by viewModel.arubaBuildings.collectAsStateWithLifecycle()
+    val mapImportStatus  by viewModel.mapImportStatus.collectAsStateWithLifecycle()
+    val mistSiteId       by viewModel.mistSiteId.collectAsStateWithLifecycle()
+
+    val context = LocalContext.current
+    var fileNameDialogUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingFileName   by remember { mutableStateOf("") }
+
+    val fileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            pendingFileName = context.contentResolver
+                .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0) cursor.getString(idx).substringBeforeLast(".") else null
+                    } else null
+                } ?: "Floor Map"
+            fileNameDialogUri = uri
+        }
+    }
+
+    if (fileNameDialogUri != null) {
+        AlertDialog(
+            onDismissRequest = { fileNameDialogUri = null },
+            title = { Text("Map Name") },
+            text  = {
+                OutlinedTextField(
+                    value         = pendingFileName,
+                    onValueChange = { pendingFileName = it },
+                    label         = { Text("Name") },
+                    singleLine    = true,
+                    modifier      = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.importLocalFile(fileNameDialogUri!!, pendingFileName.ifBlank { "Floor Map" })
+                        fileNameDialogUri = null
+                    }
+                ) { Text("Import") }
+            },
+            dismissButton = {
+                TextButton(onClick = { fileNameDialogUri = null }) { Text("Cancel") }
+            },
+        )
+    }
+
     LaunchedEffect(orgId) {
         if (orgId.isNotBlank() && sites.isEmpty()) viewModel.loadSites()
     }
@@ -149,6 +217,23 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                 onSelectSite         = { id, name -> viewModel.selectArubaSite(id, name) },
                 onSyncAps            = viewModel::syncArubaAps,
             ) }
+            item {
+                FloorMapsCard(
+                    floorMaps        = floorMaps,
+                    mistMaps         = mistMaps,
+                    arubaBuildings   = arubaBuildings,
+                    mapImportStatus  = mapImportStatus,
+                    mistSiteConfigured  = mistSiteId.isNotBlank() && mistSiteId != "all",
+                    arubaSiteConfigured = arubaSiteId.isNotBlank(),
+                    arubaSiteId      = arubaSiteId,
+                    onLoadMistMaps   = viewModel::loadMistMaps,
+                    onLoadArubaBuildings = viewModel::loadArubaBuildings,
+                    onImportFromMist    = viewModel::importFromMist,
+                    onImportFromAruba   = { siteId, floor, bldName -> viewModel.importFromAruba(siteId, floor, bldName) },
+                    onImportLocal       = { fileLauncher.launch(arrayOf("image/png", "image/jpeg", "application/pdf")) },
+                    onDelete            = viewModel::deleteFloorMap,
+                )
+            }
         }
     }
 }
@@ -196,7 +281,7 @@ private fun MistConfigCard(
 
         // Test connection button + result
         Button(onClick = onTestConnection, modifier = Modifier.fillMaxWidth()) {
-            Text("Test Connection")
+            Text("Connect")
         }
 
         if (connectionResult.isNotEmpty()) {
@@ -397,7 +482,7 @@ private fun ArubaCard(
         Spacer(Modifier.height(8.dp))
 
         Button(onClick = onTestConnection, modifier = Modifier.fillMaxWidth()) {
-            Text("Test Connection")
+            Text("Connect")
         }
 
         if (connectionResult.isNotEmpty()) {
@@ -500,6 +585,158 @@ private fun ArubaClusterDropdown(current: String, onSelect: (String) -> Unit) {
                     text    = { Text("$displayName  ($host)") },
                     onClick = { onSelect(host); expanded = false },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FloorMapsCard(
+    floorMaps: List<FloorMapEntity>,
+    mistMaps: List<MistMap>,
+    arubaBuildings: List<ArubaBuilding>,
+    mapImportStatus: MapImportStatus,
+    mistSiteConfigured: Boolean,
+    arubaSiteConfigured: Boolean,
+    arubaSiteId: String,
+    onLoadMistMaps: () -> Unit,
+    onLoadArubaBuildings: () -> Unit,
+    onImportFromMist: (MistMap) -> Unit,
+    onImportFromAruba: (String, ArubaFloor, String) -> Unit,
+    onImportLocal: () -> Unit,
+    onDelete: (Long) -> Unit,
+) {
+    SectionCard(title = "Floor Maps") {
+
+        // Mist section
+        Text("Mist", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        OutlinedButton(
+            onClick  = onLoadMistMaps,
+            enabled  = mistSiteConfigured && mapImportStatus !is MapImportStatus.Loading,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Load Maps from Mist") }
+        if (mistMaps.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            mistMaps.forEach { map ->
+                Row(
+                    modifier          = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(map.name, style = MaterialTheme.typography.bodySmall)
+                        if (map.widthM != null && map.heightM != null) {
+                            Text(
+                                "%.1fm × %.1fm".format(map.widthM, map.heightM),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline,
+                            )
+                        }
+                    }
+                    TextButton(onClick = { onImportFromMist(map) }) { Text("Import") }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Divider()
+        Spacer(Modifier.height(12.dp))
+
+        // Aruba section
+        Text("Aruba Central", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        OutlinedButton(
+            onClick  = onLoadArubaBuildings,
+            enabled  = arubaSiteConfigured && mapImportStatus !is MapImportStatus.Loading,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Load Maps from Aruba") }
+        if (arubaBuildings.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            arubaBuildings.forEach { building ->
+                val bldName = building.properties.name ?: "Building"
+                Text(bldName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                building.floors.forEach { floor ->
+                    Row(
+                        modifier          = Modifier.fillMaxWidth().padding(start = 12.dp, top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            floor.properties.name ?: "Floor ${floor.properties.ordinal ?: ""}",
+                            style    = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { onImportFromAruba(arubaSiteId, floor, bldName) }) {
+                            Text("Import")
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Divider()
+        Spacer(Modifier.height(12.dp))
+
+        // Local file
+        Text("Local File", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        OutlinedButton(
+            onClick  = onImportLocal,
+            enabled  = mapImportStatus !is MapImportStatus.Loading,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Import from File (PNG / JPEG / PDF)") }
+
+        // Status
+        Spacer(Modifier.height(8.dp))
+        when (mapImportStatus) {
+            is MapImportStatus.Loading ->
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            is MapImportStatus.Success ->
+                Text("✓ Imported: ${mapImportStatus.name}", color = Color(0xFF2E7D32), style = MaterialTheme.typography.bodySmall)
+            is MapImportStatus.Error ->
+                Text("✗ ${mapImportStatus.message}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            else -> {}
+        }
+
+        // Saved maps list
+        if (floorMaps.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Divider()
+            Spacer(Modifier.height(8.dp))
+            Text("Saved Maps (${floorMaps.size})", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            floorMaps.forEach { map ->
+                Row(
+                    modifier          = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Filled.Map,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint     = when (map.source) {
+                            "mist"  -> Color(0xFF1565C0)
+                            "aruba" -> Color(0xFF2E7D32)
+                            else    -> MaterialTheme.colorScheme.outline
+                        },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text     = map.name,
+                        style    = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text  = map.source,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                    IconButton(onClick = { onDelete(map.id) }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(16.dp))
+                    }
+                }
             }
         }
     }

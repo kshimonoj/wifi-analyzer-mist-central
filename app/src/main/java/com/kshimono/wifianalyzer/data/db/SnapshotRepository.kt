@@ -13,6 +13,10 @@ interface SnapshotRepository {
         note: String,
         latitude: Double?,
         longitude: Double?,
+        gpsAccuracy: Float? = null,
+        connectedSsid: String? = null,
+        connectedBssid: String? = null,
+        connectedApName: String? = null,
         observations: List<BssidSummary>,
     ): Long
 
@@ -23,4 +27,6 @@ interface SnapshotRepository {
     suspend fun getObservations(snapshotId: Long): List<SnapshotObservationEntity>
 
     suspend fun deleteSnapshot(id: Long)
+
+    suspend fun deleteAllSnapshots()
 }

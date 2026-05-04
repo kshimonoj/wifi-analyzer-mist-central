@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -54,6 +55,7 @@ fun SnapshotListScreen(
     val snapshots    by viewModel.allSnapshots.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var showDeleteAllDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(errorMessage) {
         errorMessage?.let {
@@ -62,9 +64,38 @@ fun SnapshotListScreen(
         }
     }
 
+    if (showDeleteAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAllDialog = false },
+            title   = { Text("Delete All Snapshots") },
+            text    = { Text("Delete all ${snapshots.size} snapshots? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = { showDeleteAllDialog = false; viewModel.deleteAllSnapshots() }) {
+                    Text("Delete All", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAllDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Snapshots") })
+            TopAppBar(
+                title = { Text("Snapshots") },
+                actions = {
+                    if (snapshots.isNotEmpty()) {
+                        IconButton(onClick = { showDeleteAllDialog = true }) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = "Delete All",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                },
+            )
         },
     ) { padding ->
         if (snapshots.isEmpty()) {
@@ -165,6 +196,14 @@ private fun SnapshotCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.secondary,
                 )
+                if (snapshot.connectedSsid != null) {
+                    val apLabel = snapshot.connectedApName ?: snapshot.connectedBssid ?: ""
+                    Text(
+                        text  = "Connected to: ${snapshot.connectedSsid}${if (apLabel.isNotBlank()) " via $apLabel" else ""}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF1D9E75),
+                    )
+                }
             }
             IconButton(onClick = onExport) {
                 Icon(

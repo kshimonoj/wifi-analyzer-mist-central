@@ -37,4 +37,34 @@ interface SnapshotDao {
 
     @Query("DELETE FROM snapshots WHERE id = :id")
     suspend fun deleteSnapshotById(id: Long)
+
+    @Query("UPDATE snapshots SET floorMapId=:floorMapId, mapX=:mapX, mapY=:mapY WHERE id=:id")
+    suspend fun updateMapPosition(id: Long, floorMapId: Long, mapX: Float, mapY: Float)
+
+    @Query("SELECT * FROM snapshots WHERE floorMapId=:floorMapId ORDER BY timestamp DESC")
+    fun getSnapshotsByMapId(floorMapId: Long): Flow<List<SnapshotEntity>>
+
+    @Query("UPDATE snapshots SET floorMapId=NULL, mapX=NULL, mapY=NULL WHERE id=:id")
+    suspend fun removeMapPosition(id: Long)
+
+    @Query("SELECT MAX(rssi) FROM snapshot_observations WHERE snapshotId=:snapshotId")
+    suspend fun getMaxRssi(snapshotId: Long): Int?
+
+    @Query("SELECT * FROM snapshots WHERE floorMapId=:floorMapId AND connectedBssid IS NOT NULL ORDER BY timestamp DESC")
+    fun getSnapshotsWithConnection(floorMapId: Long): Flow<List<SnapshotEntity>>
+
+    @Transaction
+    suspend fun deleteAll() {
+        deleteAllObservations()
+        deleteAllSnapshots()
+    }
+
+    @Query("DELETE FROM snapshot_observations")
+    suspend fun deleteAllObservations()
+
+    @Query("DELETE FROM snapshots")
+    suspend fun deleteAllSnapshots()
+
+    @Query("UPDATE snapshots SET floorMapId=NULL, mapX=NULL, mapY=NULL WHERE floorMapId=:floorMapId")
+    suspend fun removeAllFromMap(floorMapId: Long)
 }

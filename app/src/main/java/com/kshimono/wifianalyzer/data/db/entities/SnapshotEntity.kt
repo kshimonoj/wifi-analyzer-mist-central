@@ -13,5 +13,12 @@ data class SnapshotEntity(
     val note: String,
     val latitude: Double?,
     val longitude: Double?,
+    val gpsAccuracy: Float? = null,
     val bssidCount: Int,
+    val floorMapId: Long? = null,
+    val mapX: Float? = null,
+    val mapY: Float? = null,
+    val connectedSsid: String? = null,
+    val connectedBssid: String? = null,
+    val connectedApName: String? = null,
 )

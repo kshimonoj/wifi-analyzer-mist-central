@@ -3,6 +3,7 @@ package com.kshimono.wifianalyzer.ui
 import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShowChart
@@ -23,6 +24,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.kshimono.wifianalyzer.ui.compare.CompareGraphScreen
+import com.kshimono.wifianalyzer.ui.map.FloorMapScreen
 import com.kshimono.wifianalyzer.ui.monitor.MonitorScreen
 import com.kshimono.wifianalyzer.ui.scan.ScanScreen
 import com.kshimono.wifianalyzer.ui.settings.SettingsScreen
@@ -31,10 +33,11 @@ import com.kshimono.wifianalyzer.ui.snapshot.SnapshotListScreen
 private const val ROUTE_SCAN      = "scan"
 private const val ROUTE_SNAPSHOTS = "snapshots"
 private const val ROUTE_MONITOR   = "monitor"
+private const val ROUTE_MAP       = "map"
 private const val ROUTE_SETTINGS  = "settings"
 private const val ROUTE_COMPARE   = "compare/{bssids}"
 
-private val TOP_LEVEL_ROUTES = setOf(ROUTE_SCAN, ROUTE_SNAPSHOTS, ROUTE_MONITOR, ROUTE_SETTINGS)
+private val TOP_LEVEL_ROUTES = setOf(ROUTE_SCAN, ROUTE_SNAPSHOTS, ROUTE_MONITOR, ROUTE_MAP, ROUTE_SETTINGS)
 
 @Composable
 fun AppNavigation() {
@@ -52,6 +55,7 @@ fun AppNavigation() {
                         Triple(ROUTE_SCAN,      Icons.Filled.Wifi,      "Scan"),
                         Triple(ROUTE_SNAPSHOTS, Icons.Filled.Save,      "Snapshots"),
                         Triple(ROUTE_MONITOR,   Icons.Filled.ShowChart, "Monitor"),
+                        Triple(ROUTE_MAP,       Icons.Filled.Map,       "Map"),
                         Triple(ROUTE_SETTINGS,  Icons.Filled.Settings,  "Settings"),
                     ).forEach { (route, icon, label) ->
                         NavigationBarItem(
@@ -88,6 +92,19 @@ fun AppNavigation() {
             }
             composable(ROUTE_SNAPSHOTS) { SnapshotListScreen() }
             composable(ROUTE_MONITOR)   { MonitorScreen() }
+            composable(ROUTE_MAP)       {
+                FloorMapScreen(
+                    onNavigateToSettings = {
+                        navController.navigate(ROUTE_SETTINGS) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState    = true
+                        }
+                    },
+                )
+            }
             composable(ROUTE_SETTINGS)  { SettingsScreen() }
             composable(
                 route     = ROUTE_COMPARE,

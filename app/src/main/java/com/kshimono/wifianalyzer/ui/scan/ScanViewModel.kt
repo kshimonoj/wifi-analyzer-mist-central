@@ -83,6 +83,9 @@ class ScanViewModel @Inject constructor(
     val rssiHistory: StateFlow<Map<String, List<RssiHistory>>> = scanner.rssiHistory
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    val connectedBssid: StateFlow<String?> = scanner.connectedBssid
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val filteredResults: StateFlow<List<BssidSummary>> = combine(
         scanner.scanResults,
         _filterEssid,

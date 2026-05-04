@@ -13,7 +13,9 @@ import io.ktor.client.request.parameter
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import com.kshimono.wifianalyzer.data.settings.SettingsRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -61,13 +63,91 @@ data class ArubaBssidResponse(
     val items: List<ArubaBssid> = emptyList(),
 )
 
+@Serializable
+data class ArubaFloorProperties(
+    val name: String? = null,
+    val ordinal: Int? = null,
+    val siteId: String? = null,
+    val ceilingHeight: Int? = null,
+)
+
+@Serializable
+data class ArubaFloor(
+    val floorId: String,
+    val properties: ArubaFloorProperties = ArubaFloorProperties(),
+)
+
+@Serializable
+data class ArubaBuildingProperties(
+    val name: String? = null,
+    val siteId: String? = null,
+)
+
+@Serializable
+data class ArubaBuilding(
+    val buildingId: String? = null,
+    val properties: ArubaBuildingProperties = ArubaBuildingProperties(),
+    val floors: List<ArubaFloor> = emptyList(),
+)
+
+@Serializable
+data class ArubaBuildingsResponse(
+    val count: Int = 0,
+    val items: List<ArubaBuilding> = emptyList(),
+)
+
+@Serializable
+data class ArubaRadio(
+    val macAddress: String? = null,
+    val channel: String? = null,
+    val band: String? = null,
+    val power: String? = null,
+    val number: Int? = null,
+)
+
+@Serializable
+data class ArubaApProperties(
+    val macAddress: String? = null,
+    val model: String? = null,
+    val status: String? = null,
+    val radios: List<ArubaRadio>? = null,
+)
+
+@Serializable
+data class ArubaDeployedDevice(
+    val deviceName: String? = null,
+    val deviceType: String? = null,
+    val geometryRelative: List<Double>? = null,
+    val accesspointProperties: ArubaApProperties? = null,
+)
+
+@Serializable
+data class ArubaDeployedDevicesResponse(
+    val items: List<ArubaDeployedDevice> = emptyList(),
+    val total: Int = 0,
+)
+
+@Serializable
+data class ArubaFloorDetailProperties(
+    val length: Double? = null,
+    val breadth: Double? = null,
+    val name: String? = null,
+)
+
+@Serializable
+data class ArubaFloorDetail(
+    val properties: ArubaFloorDetailProperties? = null,
+)
+
 sealed class ArubaResult<out T> {
     data class Success<T>(val data: T) : ArubaResult<T>()
     data class Error<T>(val message: String) : ArubaResult<T>()
 }
 
 @Singleton
-class ArubaApiClient @Inject constructor() {
+class ArubaApiClient @Inject constructor(
+    private val settingsRepository: SettingsRepository,
+) {
 
     private var clientId: String = ""
     private var clientSecret: String = ""
@@ -125,7 +205,20 @@ class ArubaApiClient @Inject constructor() {
     }
 
     private suspend fun ensureValidToken() {
+        // In-memory fast path
         if (accessToken.isNotEmpty() && System.currentTimeMillis() < tokenExpiresAt - 60_000L) return
+
+        // DataStore fallback — valid across app restarts
+        val savedToken  = settingsRepository.arubaAccessToken.first()
+        val savedExpiry = settingsRepository.arubaTokenExpiresAt.first()
+        if (savedToken.isNotEmpty() && System.currentTimeMillis() < savedExpiry - 60_000L) {
+            accessToken    = savedToken
+            tokenExpiresAt = savedExpiry
+            Log.d(TAG, "Using persisted token")
+            return
+        }
+
+        // Network fetch
         Log.d(TAG, "Fetching new token for clientId: ${clientId.trim().take(8)}...")
         val body = "grant_type=client_credentials" +
                    "&client_id=${clientId.trim()}" +
@@ -160,6 +253,17 @@ class ArubaApiClient @Inject constructor() {
         accessToken    = jsonObj.getString("access_token")
         tokenExpiresAt = System.currentTimeMillis() + jsonObj.getLong("expires_in") * 1000L
         Log.d(TAG, "Token obtained: ${accessToken.take(20)}...")
+
+        // Persist for next app session
+        settingsRepository.setArubaAccessToken(accessToken)
+        settingsRepository.setArubaTokenExpiresAt(tokenExpiresAt)
+    }
+
+    suspend fun forceRefreshToken() {
+        accessToken    = ""
+        tokenExpiresAt = 0L
+        settingsRepository.setArubaTokenExpiresAt(0L)
+        ensureValidToken()
     }
 
     suspend fun getSites(): ArubaResult<List<ArubaSite>> = runCatching {
@@ -194,6 +298,60 @@ class ArubaApiClient @Inject constructor() {
             offset += limit
         }
         ArubaResult.Success(allItems)
+    }.getOrElse { e -> ArubaResult.Error(networkError(e)) }
+
+    suspend fun getBuildings(siteId: String): ArubaResult<List<ArubaBuilding>> = runCatching {
+        ensureValidToken()
+        val resp: HttpResponse = http.get("$baseUrl/network-monitoring/v1/sitemaps/$siteId/buildings") {
+            header("Authorization", "Bearer $accessToken")
+        }
+        if (!resp.status.isSuccess()) return ArubaResult.Error(apiHttpError(resp.status.value))
+        val body = resp.body<ArubaBuildingsResponse>()
+        Log.d(TAG, "Fetched ${body.items.size} buildings for siteId=$siteId")
+        ArubaResult.Success(body.items)
+    }.getOrElse { e -> ArubaResult.Error(networkError(e)) }
+
+    suspend fun getDeployedDevices(siteId: String, floorId: String): ArubaResult<List<ArubaDeployedDevice>> = runCatching {
+        ensureValidToken()
+        val resp: HttpResponse = http.get("$baseUrl/network-monitoring/v1/sitemaps/$siteId/network-devices-deployed") {
+            header("Authorization", "Bearer $accessToken")
+            parameter("filter", "floorId eq '$floorId'")
+        }
+        if (!resp.status.isSuccess()) return ArubaResult.Error(apiHttpError(resp.status.value))
+        val body = resp.body<ArubaDeployedDevicesResponse>()
+        Log.d(TAG, "Fetched ${body.items.size} devices for siteId=$siteId floorId=$floorId")
+        ArubaResult.Success(body.items)
+    }.getOrElse { e -> ArubaResult.Error(networkError(e)) }
+
+    suspend fun getFloorDetail(siteId: String, floorId: String): ArubaResult<ArubaFloorDetail> = runCatching {
+        ensureValidToken()
+        val resp: HttpResponse = http.get("$baseUrl/network-monitoring/v1/sitemaps/$siteId/floors/$floorId") {
+            header("Authorization", "Bearer $accessToken")
+        }
+        if (!resp.status.isSuccess()) return ArubaResult.Error(apiHttpError(resp.status.value))
+        ArubaResult.Success(resp.body<ArubaFloorDetail>())
+    }.getOrElse { e -> ArubaResult.Error(networkError(e)) }
+
+    suspend fun downloadFloorImage(siteId: String, floorId: String): ArubaResult<ByteArray> = runCatching {
+        ensureValidToken()
+        val token = accessToken
+        val bytes = withContext(Dispatchers.IO) {
+            val url = "$baseUrl/network-monitoring/v1/sitemaps/$siteId/floors/$floorId/image?raster=true"
+            val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Authorization", "Bearer $token")
+                connectTimeout = 15_000
+                readTimeout    = 60_000
+            }
+            try {
+                val status = conn.responseCode
+                if (status != 200) throw Exception(apiHttpError(status))
+                conn.inputStream.use { it.readBytes() }
+            } finally {
+                conn.disconnect()
+            }
+        }
+        ArubaResult.Success(bytes)
     }.getOrElse { e -> ArubaResult.Error(networkError(e)) }
 
     suspend fun testConnection(clientId: String, clientSecret: String, cluster: String): ArubaResult<Int> =

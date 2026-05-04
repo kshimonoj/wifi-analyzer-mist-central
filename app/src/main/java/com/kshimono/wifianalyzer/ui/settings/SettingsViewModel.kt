@@ -1,16 +1,24 @@
 package com.kshimono.wifianalyzer.ui.settings
 
+import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kshimono.wifianalyzer.data.aruba.ArubaApiClient
+import com.kshimono.wifianalyzer.data.aruba.ArubaBuilding
+import com.kshimono.wifianalyzer.data.aruba.ArubaFloor
 import com.kshimono.wifianalyzer.data.aruba.ArubaRepository
 import com.kshimono.wifianalyzer.data.aruba.ArubaResult
 import com.kshimono.wifianalyzer.data.aruba.ArubaSite
+import com.kshimono.wifianalyzer.data.db.entities.FloorMapEntity
+import com.kshimono.wifianalyzer.data.floormap.FloorMapRepository
+import com.kshimono.wifianalyzer.data.mist.MistApiClient
+import com.kshimono.wifianalyzer.data.mist.MistMap
 import com.kshimono.wifianalyzer.data.mist.MistOrg
 import com.kshimono.wifianalyzer.data.mist.MistRepository
 import com.kshimono.wifianalyzer.data.mist.MistResult
 import com.kshimono.wifianalyzer.data.mist.MistSite
 import com.kshimono.wifianalyzer.data.settings.SettingsRepository
-import android.util.Log
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,11 +38,21 @@ sealed class SyncStatus {
     data class Error(val message: String) : SyncStatus()
 }
 
+sealed class MapImportStatus {
+    object Idle : MapImportStatus()
+    object Loading : MapImportStatus()
+    data class Success(val name: String) : MapImportStatus()
+    data class Error(val message: String) : MapImportStatus()
+}
+
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val settings: SettingsRepository,
-    private val mistRepository: MistRepository,
-    private val arubaRepository: ArubaRepository,
+    private val settings:          SettingsRepository,
+    private val mistRepository:    MistRepository,
+    private val arubaRepository:   ArubaRepository,
+    private val mistApiClient:     MistApiClient,
+    private val arubaApiClient:    ArubaApiClient,
+    private val floorMapRepository: FloorMapRepository,
 ) : ViewModel() {
 
     val mistToken    = settings.mistToken   .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
@@ -77,6 +95,19 @@ class SettingsViewModel @Inject constructor(
     private val _arubaSites = MutableStateFlow<List<ArubaSite>>(emptyList())
     val arubaSites: StateFlow<List<ArubaSite>> = _arubaSites.asStateFlow()
 
+    // Floor Map state
+    val floorMaps: StateFlow<List<FloorMapEntity>> = floorMapRepository.getAllMaps()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _mistMaps = MutableStateFlow<List<MistMap>>(emptyList())
+    val mistMaps: StateFlow<List<MistMap>> = _mistMaps.asStateFlow()
+
+    private val _arubaBuildings = MutableStateFlow<List<ArubaBuilding>>(emptyList())
+    val arubaBuildings: StateFlow<List<ArubaBuilding>> = _arubaBuildings.asStateFlow()
+
+    private val _mapImportStatus = MutableStateFlow<MapImportStatus>(MapImportStatus.Idle)
+    val mapImportStatus: StateFlow<MapImportStatus> = _mapImportStatus.asStateFlow()
+
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
         Log.e(TAG, "Uncaught exception", t)
     }
@@ -105,6 +136,7 @@ class SettingsViewModel @Inject constructor(
                         "✓ Connected: ${result.data.first().name}"
                     else
                         "✓ Connected (no orgs found)"
+                    syncAps()
                 }
                 is MistResult.Error -> {
                     _connectionTestResult.value = "✗ Error: ${result.message}"
@@ -175,6 +207,7 @@ class SettingsViewModel @Inject constructor(
                 is ArubaResult.Success -> {
                     _arubaConnectionTestResult.value = "✓ Connected: ${result.data} BSSIDs found"
                     loadArubaSites()
+                    syncArubaAps()
                 }
                 is ArubaResult.Error ->
                     _arubaConnectionTestResult.value = "✗ Error: ${result.message}"
@@ -211,5 +244,82 @@ class SettingsViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    // ── Floor Map functions ──────────────────────────────────────────────────
+
+    fun loadMistMaps() {
+        val siteId = mistSiteId.value
+        val token  = mistToken.value
+        val region = mistRegion.value
+        if (token.isBlank() || siteId.isBlank() || siteId == "all") {
+            _mapImportStatus.value = MapImportStatus.Error("Mist token and site must be configured")
+            return
+        }
+        viewModelScope.launch(exceptionHandler) {
+            _mapImportStatus.value = MapImportStatus.Loading
+            mistApiClient.configure(token, region)
+            when (val result = mistApiClient.getMaps(siteId)) {
+                is MistResult.Success -> {
+                    _mistMaps.value    = result.data
+                    _mapImportStatus.value = MapImportStatus.Idle
+                }
+                is MistResult.Error -> {
+                    _mapImportStatus.value = MapImportStatus.Error(result.message)
+                }
+            }
+        }
+    }
+
+    fun loadArubaBuildings() {
+        val siteId = arubaSiteId.value
+        if (siteId.isBlank()) {
+            _mapImportStatus.value = MapImportStatus.Error("Aruba site must be configured")
+            return
+        }
+        viewModelScope.launch(exceptionHandler) {
+            _mapImportStatus.value = MapImportStatus.Loading
+            when (val result = arubaApiClient.getBuildings(siteId)) {
+                is ArubaResult.Success -> {
+                    _arubaBuildings.value  = result.data
+                    _mapImportStatus.value = MapImportStatus.Idle
+                }
+                is ArubaResult.Error -> {
+                    _mapImportStatus.value = MapImportStatus.Error(result.message)
+                }
+            }
+        }
+    }
+
+    fun importFromMist(map: MistMap) {
+        viewModelScope.launch(exceptionHandler) {
+            _mapImportStatus.value = MapImportStatus.Loading
+            floorMapRepository.importFromMist(map, mistToken.value, mistRegion.value)
+                .onSuccess { _mapImportStatus.value = MapImportStatus.Success(map.name) }
+                .onFailure { _mapImportStatus.value = MapImportStatus.Error(it.message ?: "Import failed") }
+        }
+    }
+
+    fun importFromAruba(siteId: String, floor: ArubaFloor, buildingName: String) {
+        viewModelScope.launch(exceptionHandler) {
+            _mapImportStatus.value = MapImportStatus.Loading
+            val name = buildingName + " - " + (floor.properties.name ?: "Floor ${floor.properties.ordinal ?: ""}")
+            floorMapRepository.importFromAruba(siteId, floor, buildingName)
+                .onSuccess { _mapImportStatus.value = MapImportStatus.Success(name) }
+                .onFailure { _mapImportStatus.value = MapImportStatus.Error(it.message ?: "Import failed") }
+        }
+    }
+
+    fun importLocalFile(uri: Uri, name: String) {
+        viewModelScope.launch(exceptionHandler) {
+            _mapImportStatus.value = MapImportStatus.Loading
+            floorMapRepository.importLocalFile(uri, name)
+                .onSuccess { _mapImportStatus.value = MapImportStatus.Success(name) }
+                .onFailure { _mapImportStatus.value = MapImportStatus.Error(it.message ?: "Import failed") }
+        }
+    }
+
+    fun deleteFloorMap(id: Long) {
+        viewModelScope.launch(exceptionHandler) { floorMapRepository.deleteMap(id) }
     }
 }

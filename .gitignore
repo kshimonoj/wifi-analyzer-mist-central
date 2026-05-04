@@ -21,3 +21,9 @@ local.properties
 
 # Kotlin compiler artifacts
 .kotlin/
+
+# Analyzer
+analyzer/__pycache__/
+analyzer/app/__pycache__/
+analyzer/.streamlit/
+*.pyc

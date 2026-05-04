@@ -83,6 +83,12 @@ dependencies {
     // DataStore (Settings保存)
     implementation(libs.androidx.datastore.preferences)
 
+    // Fused Location Provider (GPS)
+    implementation(libs.play.services.location)
+
+    // Coil (フロアマップ画像表示)
+    implementation(libs.coil.compose)
+
     // Test
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

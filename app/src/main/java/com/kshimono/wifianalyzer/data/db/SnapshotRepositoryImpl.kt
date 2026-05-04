@@ -20,17 +20,25 @@ class SnapshotRepositoryImpl @Inject constructor(
         note: String,
         latitude: Double?,
         longitude: Double?,
+        gpsAccuracy: Float?,
+        connectedSsid: String?,
+        connectedBssid: String?,
+        connectedApName: String?,
         observations: List<BssidSummary>,
     ): Long {
         val snapshotEntity = SnapshotEntity(
-            name          = name,
-            timestamp     = System.currentTimeMillis(),
-            locationLabel = locationLabel,
-            floorLabel    = floorLabel,
-            note          = note,
-            latitude      = latitude,
-            longitude     = longitude,
-            bssidCount    = observations.size,
+            name            = name,
+            timestamp       = System.currentTimeMillis(),
+            locationLabel   = locationLabel,
+            floorLabel      = floorLabel,
+            note            = note,
+            latitude        = latitude,
+            longitude       = longitude,
+            gpsAccuracy     = gpsAccuracy,
+            connectedSsid   = connectedSsid,
+            connectedBssid  = connectedBssid,
+            connectedApName = connectedApName,
+            bssidCount      = observations.size,
         )
         val snapshotId = dao.insertSnapshot(snapshotEntity)
         val obsEntities = observations.map { summary ->
@@ -66,4 +74,7 @@ class SnapshotRepositoryImpl @Inject constructor(
 
     override suspend fun deleteSnapshot(id: Long) =
         dao.deleteSnapshot(id)
+
+    override suspend fun deleteAllSnapshots() =
+        dao.deleteAll()
 }

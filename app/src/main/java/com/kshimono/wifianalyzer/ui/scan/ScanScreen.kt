@@ -1,6 +1,8 @@
 package com.kshimono.wifianalyzer.ui.scan
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -48,6 +51,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -66,6 +70,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.LaunchedEffect
 import com.kshimono.wifianalyzer.domain.model.BssidSummary
 import com.kshimono.wifianalyzer.ui.snapshot.SaveSnapshotDialog
 import com.kshimono.wifianalyzer.ui.snapshot.SnapshotViewModel
@@ -89,6 +94,7 @@ fun ScanScreen(
     val autoScanInterval by viewModel.autoScanInterval.collectAsStateWithLifecycle()
     val wifiEnabled      by viewModel.wifiEnabled.collectAsStateWithLifecycle()
     val hasPermission    by viewModel.hasPermission.collectAsStateWithLifecycle()
+    val connectedBssid   by viewModel.connectedBssid.collectAsStateWithLifecycle()
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -99,10 +105,20 @@ fun ScanScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val gpsLocation      by snapshotViewModel.gpsLocation.collectAsStateWithLifecycle()
+    val gpsLoading       by snapshotViewModel.gpsLoading.collectAsStateWithLifecycle()
+    val gpsError         by snapshotViewModel.gpsError.collectAsStateWithLifecycle()
+    val snapConnSsid     by snapshotViewModel.connectedSsid.collectAsStateWithLifecycle()
+    val snapConnBssid    by snapshotViewModel.connectedBssid.collectAsStateWithLifecycle()
+
     val context = LocalContext.current
 
     var showSaveDialog by remember { mutableStateOf(false) }
     var selectedBssids by remember { mutableStateOf(emptySet<String>()) }
+
+    LaunchedEffect(showSaveDialog) {
+        if (showSaveDialog) snapshotViewModel.clearGpsState()
+    }
 
     if (showSaveDialog) {
         SaveSnapshotDialog(
@@ -110,7 +126,17 @@ fun ScanScreen(
                 snapshotViewModel.saveSnapshot(name, location, floor, note, filteredResults)
                 showSaveDialog = false
             },
-            onCancel = { showSaveDialog = false },
+            onCancel         = { showSaveDialog = false },
+            gpsLocation      = gpsLocation,
+            gpsLoading       = gpsLoading,
+            gpsError         = gpsError,
+            onFetchGps       = snapshotViewModel::fetchGpsLocation,
+            connectedSsid    = snapConnSsid,
+            connectedBssid   = snapConnBssid,
+            connectedApName  = if (snapConnBssid != null)
+                filteredResults.firstOrNull { it.observation.bssid.equals(snapConnBssid, ignoreCase = true) }
+                    ?.let { it.observation.mistApName ?: it.observation.arubaApName }
+                else null,
         )
     }
 
@@ -273,9 +299,10 @@ fun ScanScreen(
                             key = { "${it.observation.bssid}/${it.observation.ssid}" },
                         ) { summary ->
                             BssidCard(
-                                summary    = summary,
-                                selected   = summary.observation.bssid in selectedBssids,
-                                onLongPress = {
+                                summary        = summary,
+                                selected       = summary.observation.bssid in selectedBssids,
+                                connectedBssid = connectedBssid,
+                                onLongPress    = {
                                     val bssid = summary.observation.bssid
                                     selectedBssids = if (bssid in selectedBssids)
                                         selectedBssids - bssid
@@ -397,20 +424,25 @@ private fun FilterDropdown(
 
 // ── BSSID card ──────────────────────────────────────────────────────────────
 
+private val connectedGreen = Color(0xFF1D9E75)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BssidCard(
-    summary:     BssidSummary,
-    selected:    Boolean,
-    onLongPress: () -> Unit,
+    summary:        BssidSummary,
+    selected:       Boolean,
+    connectedBssid: String?,
+    onLongPress:    () -> Unit,
 ) {
-    val obs  = summary.observation
-    val band = summary.band
+    val obs        = summary.observation
+    val band       = summary.band
+    val isConnected = obs.bssid.equals(connectedBssid, ignoreCase = true)
 
-    val cardColors = if (selected)
-        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-    else
-        CardDefaults.cardColors()
+    val cardColors = when {
+        selected    -> CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        else        -> CardDefaults.cardColors()
+    }
+    val border = if (isConnected) BorderStroke(1.5.dp, connectedGreen) else null
 
     Card(
         modifier  = Modifier
@@ -421,12 +453,13 @@ private fun BssidCard(
             ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         colors    = cardColors,
+        border    = border,
     ) {
         Column(
             modifier            = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            // Row 1: signal icon + SSID + RSSI badge
+            // Row 1: signal icon + SSID + Connected badge + RSSI badge
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SignalIcon(obs.rssi)
                 Spacer(Modifier.width(8.dp))
@@ -436,6 +469,18 @@ private fun BssidCard(
                     fontWeight = FontWeight.SemiBold,
                     modifier   = Modifier.weight(1f),
                 )
+                if (isConnected) {
+                    Text(
+                        text     = "Connected",
+                        style    = MaterialTheme.typography.labelSmall,
+                        color    = Color.White,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(connectedGreen)
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
                 RssiBadge(obs.rssi)
             }
             // Row 2: AP name (Mist > Aruba > none) or BSSID + vendor

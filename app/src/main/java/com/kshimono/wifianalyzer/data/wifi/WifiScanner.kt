@@ -8,6 +8,8 @@ interface WifiScanner {
     val isScanning: StateFlow<Boolean>
     val scanThrottled: StateFlow<Boolean>
     val rssiHistory: StateFlow<Map<String, List<RssiHistory>>>
+    val connectedBssid: StateFlow<String?>
+    val connectedSsid: StateFlow<String?>
     fun getScanResults()
     fun startScan()
     fun stopScan()

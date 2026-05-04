@@ -3,6 +3,7 @@ package com.kshimono.wifianalyzer.data.settings
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -19,8 +20,10 @@ private object Keys {
     val ARUBA_CLIENT_ID     = stringPreferencesKey("aruba_client_id")
     val ARUBA_CLIENT_SECRET = stringPreferencesKey("aruba_client_secret")
     val ARUBA_CLUSTER       = stringPreferencesKey("aruba_cluster")
-    val ARUBA_SITE_ID       = stringPreferencesKey("aruba_site_id")
-    val ARUBA_SITE_NAME     = stringPreferencesKey("aruba_site_name")
+    val ARUBA_SITE_ID          = stringPreferencesKey("aruba_site_id")
+    val ARUBA_SITE_NAME        = stringPreferencesKey("aruba_site_name")
+    val ARUBA_ACCESS_TOKEN     = stringPreferencesKey("aruba_access_token")
+    val ARUBA_TOKEN_EXPIRES_AT = longPreferencesKey("aruba_token_expires_at")
 }
 
 @Singleton
@@ -50,6 +53,10 @@ class SettingsRepositoryImpl @Inject constructor(
         get() = dataStore.data.map { it[Keys.ARUBA_SITE_ID] ?: "" }
     override val arubaSiteName: Flow<String>
         get() = dataStore.data.map { it[Keys.ARUBA_SITE_NAME] ?: "All Sites" }
+    override val arubaAccessToken: Flow<String>
+        get() = dataStore.data.map { it[Keys.ARUBA_ACCESS_TOKEN] ?: "" }
+    override val arubaTokenExpiresAt: Flow<Long>
+        get() = dataStore.data.map { it[Keys.ARUBA_TOKEN_EXPIRES_AT] ?: 0L }
 
     override suspend fun setMistToken(value: String)        { dataStore.edit { it[Keys.MIST_TOKEN] = value } }
     override suspend fun setMistRegion(value: String)       { dataStore.edit { it[Keys.MIST_REGION] = value } }
@@ -60,6 +67,8 @@ class SettingsRepositoryImpl @Inject constructor(
     override suspend fun setArubaClientId(value: String)    { dataStore.edit { it[Keys.ARUBA_CLIENT_ID] = value } }
     override suspend fun setArubaClientSecret(value: String){ dataStore.edit { it[Keys.ARUBA_CLIENT_SECRET] = value } }
     override suspend fun setArubaCluster(value: String)     { dataStore.edit { it[Keys.ARUBA_CLUSTER]   = value } }
-    override suspend fun setArubaSiteId(value: String)      { dataStore.edit { it[Keys.ARUBA_SITE_ID]   = value } }
-    override suspend fun setArubaSiteName(value: String)    { dataStore.edit { it[Keys.ARUBA_SITE_NAME] = value } }
+    override suspend fun setArubaSiteId(value: String)         { dataStore.edit { it[Keys.ARUBA_SITE_ID]          = value } }
+    override suspend fun setArubaSiteName(value: String)       { dataStore.edit { it[Keys.ARUBA_SITE_NAME]        = value } }
+    override suspend fun setArubaAccessToken(value: String)    { dataStore.edit { it[Keys.ARUBA_ACCESS_TOKEN]     = value } }
+    override suspend fun setArubaTokenExpiresAt(value: Long)   { dataStore.edit { it[Keys.ARUBA_TOKEN_EXPIRES_AT] = value } }
 }

@@ -14,6 +14,8 @@ interface SettingsRepository {
     val arubaCluster: Flow<String>
     val arubaSiteId: Flow<String>
     val arubaSiteName: Flow<String>
+    val arubaAccessToken: Flow<String>
+    val arubaTokenExpiresAt: Flow<Long>
 
     suspend fun setMistToken(value: String)
     suspend fun setMistRegion(value: String)
@@ -26,4 +28,6 @@ interface SettingsRepository {
     suspend fun setArubaCluster(value: String)
     suspend fun setArubaSiteId(value: String)
     suspend fun setArubaSiteName(value: String)
+    suspend fun setArubaAccessToken(value: String)
+    suspend fun setArubaTokenExpiresAt(value: Long)
 }

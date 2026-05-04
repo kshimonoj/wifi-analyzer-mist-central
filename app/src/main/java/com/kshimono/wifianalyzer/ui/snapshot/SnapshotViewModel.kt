@@ -7,6 +7,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kshimono.wifianalyzer.data.db.SnapshotRepository
 import com.kshimono.wifianalyzer.data.db.entities.SnapshotEntity
+import com.kshimono.wifianalyzer.data.location.LocationRepository
+import com.kshimono.wifianalyzer.data.location.LocationResult
+import com.kshimono.wifianalyzer.data.wifi.WifiScanner
 import com.kshimono.wifianalyzer.domain.model.BssidSummary
 import com.kshimono.wifianalyzer.domain.usecase.ExportCsvUseCase
 import android.util.Log
@@ -17,6 +20,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -25,8 +29,10 @@ private const val TAG = "SnapshotVM"
 
 @HiltViewModel
 class SnapshotViewModel @Inject constructor(
-    private val repository:     SnapshotRepository,
-    private val exportCsvUseCase: ExportCsvUseCase,
+    private val repository:         SnapshotRepository,
+    private val exportCsvUseCase:   ExportCsvUseCase,
+    private val locationRepository: LocationRepository,
+    private val scanner:            WifiScanner,
 ) : ViewModel() {
 
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
@@ -40,6 +46,48 @@ class SnapshotViewModel @Inject constructor(
     val allSnapshots: StateFlow<List<SnapshotEntity>> = repository.getAllSnapshots()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val connectedBssid: StateFlow<String?> = scanner.connectedBssid
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val connectedSsid: StateFlow<String?> = scanner.connectedSsid
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // GPS state
+    private val _gpsLocation = MutableStateFlow<LocationResult?>(null)
+    val gpsLocation: StateFlow<LocationResult?> = _gpsLocation.asStateFlow()
+
+    private val _gpsLoading = MutableStateFlow(false)
+    val gpsLoading: StateFlow<Boolean> = _gpsLoading.asStateFlow()
+
+    private val _gpsError = MutableStateFlow<String?>(null)
+    val gpsError: StateFlow<String?> = _gpsError.asStateFlow()
+
+    fun fetchGpsLocation() {
+        viewModelScope.launch {
+            _gpsLoading.value = true
+            _gpsError.value = null
+            try {
+                _gpsLocation.value = locationRepository.getCurrentLocation()
+            } catch (e: SecurityException) {
+                _gpsError.value = "Location permission denied"
+            } catch (e: Exception) {
+                val msg = e.message ?: "Location unavailable"
+                _gpsError.value = when {
+                    msg.contains("disabled", ignoreCase = true) -> "Location services disabled"
+                    msg.contains("timeout", ignoreCase = true)  -> "Location timeout"
+                    else -> msg
+                }
+            } finally {
+                _gpsLoading.value = false
+            }
+        }
+    }
+
+    fun clearGpsState() {
+        _gpsLocation.value = null
+        _gpsError.value    = null
+        _gpsLoading.value  = false
+    }
+
     fun saveSnapshot(
         name:          String,
         locationLabel: String,
@@ -47,15 +95,26 @@ class SnapshotViewModel @Inject constructor(
         note:          String,
         observations:  List<BssidSummary>,
     ) {
+        val gps        = _gpsLocation.value
+        val connBssid  = scanner.connectedBssid.value
+        val connSsid   = scanner.connectedSsid.value
+        val connApName = if (connBssid != null) {
+            observations.firstOrNull { it.observation.bssid.equals(connBssid, ignoreCase = true) }
+                ?.let { it.observation.mistApName ?: it.observation.arubaApName }
+        } else null
         viewModelScope.launch {
             repository.saveSnapshot(
-                name          = name,
-                locationLabel = locationLabel,
-                floorLabel    = floorLabel,
-                note          = note,
-                latitude      = null,
-                longitude     = null,
-                observations  = observations,
+                name            = name,
+                locationLabel   = locationLabel,
+                floorLabel      = floorLabel,
+                note            = note,
+                latitude        = gps?.latitude,
+                longitude       = gps?.longitude,
+                gpsAccuracy     = gps?.accuracy,
+                connectedSsid   = connSsid,
+                connectedBssid  = connBssid,
+                connectedApName = connApName,
+                observations    = observations,
             )
         }
     }
@@ -63,6 +122,12 @@ class SnapshotViewModel @Inject constructor(
     fun deleteSnapshot(id: Long) {
         viewModelScope.launch(exceptionHandler) {
             repository.deleteSnapshot(id)
+        }
+    }
+
+    fun deleteAllSnapshots() {
+        viewModelScope.launch(exceptionHandler) {
+            repository.deleteAllSnapshots()
         }
     }
 

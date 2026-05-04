@@ -30,16 +30,20 @@ class AndroidWifiScanner @Inject constructor(
     private val wifiManager =
         context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
 
-    private val _scanResults   = MutableStateFlow<List<WifiObservation>>(emptyList())
-    private val _isScanning    = MutableStateFlow(false)
-    private val _scanThrottled = MutableStateFlow(false)
-    private val historyMap     = HashMap<String, ArrayDeque<RssiHistory>>()
-    private val _rssiHistory   = MutableStateFlow<Map<String, List<RssiHistory>>>(emptyMap())
+    private val _scanResults    = MutableStateFlow<List<WifiObservation>>(emptyList())
+    private val _isScanning     = MutableStateFlow(false)
+    private val _scanThrottled  = MutableStateFlow(false)
+    private val historyMap      = HashMap<String, ArrayDeque<RssiHistory>>()
+    private val _rssiHistory    = MutableStateFlow<Map<String, List<RssiHistory>>>(emptyMap())
+    private val _connectedBssid = MutableStateFlow<String?>(null)
+    private val _connectedSsid  = MutableStateFlow<String?>(null)
 
-    override val scanResults:   StateFlow<List<WifiObservation>>          = _scanResults.asStateFlow()
-    override val isScanning:    StateFlow<Boolean>                        = _isScanning.asStateFlow()
-    override val scanThrottled: StateFlow<Boolean>                        = _scanThrottled.asStateFlow()
-    override val rssiHistory:   StateFlow<Map<String, List<RssiHistory>>> = _rssiHistory.asStateFlow()
+    override val scanResults:    StateFlow<List<WifiObservation>>          = _scanResults.asStateFlow()
+    override val isScanning:     StateFlow<Boolean>                        = _isScanning.asStateFlow()
+    override val scanThrottled:  StateFlow<Boolean>                        = _scanThrottled.asStateFlow()
+    override val rssiHistory:    StateFlow<Map<String, List<RssiHistory>>> = _rssiHistory.asStateFlow()
+    override val connectedBssid: StateFlow<String?>                        = _connectedBssid.asStateFlow()
+    override val connectedSsid:  StateFlow<String?>                        = _connectedSsid.asStateFlow()
 
     private var receiverRegistered = false
 
@@ -86,7 +90,21 @@ class AndroidWifiScanner @Inject constructor(
     override fun getAllRssiHistory(): Map<String, List<RssiHistory>> =
         historyMap.mapValues { it.value.toList() }
 
+    @Suppress("DEPRECATION")
+    private fun updateConnectedAp() {
+        val info  = wifiManager.connectionInfo
+        val bssid = info?.bssid
+        if (bssid == null || bssid == "02:00:00:00:00:00") {
+            _connectedBssid.value = null
+            _connectedSsid.value  = null
+        } else {
+            _connectedBssid.value = bssid
+            _connectedSsid.value  = info.ssid?.removeSurrounding("\"")
+        }
+    }
+
     private fun refreshFromCache(throttled: Boolean) {
+        updateConnectedAp()
         val mapped = wifiManager.scanResults
             .map { sr ->
                 val obs = ScanResultMapper.map(sr)

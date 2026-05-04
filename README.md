@@ -71,6 +71,27 @@ AP name resolution via Juniper Mist and HPE Aruba Central APIs, and snapshot-bas
 5. Select Site (optional)
 6. Tap "Sync APs"
 
+## Repository Structure
+
+This repository contains two components:
+
+- Root directory + `app/` — Android Wi-Fi Analyzer app
+- `analyzer/` — Web-based survey analyzer (Streamlit + Docker)
+
+The Android project files (build.gradle.kts, settings.gradle.kts, etc.)
+live in the root. The analyzer is a standalone tool in its own subdirectory.
+
+```
+analyzer/
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+└── app/
+    ├── app.py          # Streamlit main app
+    ├── analysis.py     # Analysis logic
+    └── map_plot.py     # Floor map visualization
+```
+
 ## Architecture
 
 ```

@@ -235,7 +235,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                     mistSiteId          = mistSiteId,
                     mistSiteConfigured  = mistSiteId.isNotBlank() && mistSiteId != "all",
                     arubaEnabled        = arubaAccessToken.isNotBlank(),
-                    arubaSiteConfigured = arubaSiteId.isNotBlank(),
+                    arubaSiteConfigured = arubaSiteId.isNotBlank() && arubaSiteId != "all",
                     arubaSiteId      = arubaSiteId,
                     onLoadMistMaps   = viewModel::loadMistMaps,
                     onLoadArubaBuildings = viewModel::loadArubaBuildings,
@@ -647,7 +647,7 @@ private fun FloorMapsCard(
         // Mist section
         Text("Mist", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
-        if (mistEnabled && mistSiteId.isBlank()) {
+        if (mistEnabled && (mistSiteId.isBlank() || mistSiteId == "all")) {
             SiteNotSelectedHint("Select a Site in Mist Configuration above to load floor maps")
             Spacer(Modifier.height(6.dp))
         }
@@ -685,7 +685,7 @@ private fun FloorMapsCard(
         // Aruba section
         Text("Aruba Central", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
-        if (arubaEnabled && arubaSiteId.isBlank()) {
+        if (arubaEnabled && (arubaSiteId.isBlank() || arubaSiteId == "all")) {
             SiteNotSelectedHint("Select a Site in Aruba Central Configuration above to load floor maps")
             Spacer(Modifier.height(6.dp))
         }

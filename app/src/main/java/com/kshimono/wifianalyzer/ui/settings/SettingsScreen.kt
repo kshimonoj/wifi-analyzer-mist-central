@@ -19,9 +19,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -38,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -223,7 +226,9 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                     mistMaps         = mistMaps,
                     arubaBuildings   = arubaBuildings,
                     mapImportStatus  = mapImportStatus,
+                    mistEnabled         = token.isNotBlank(),
                     mistSiteConfigured  = mistSiteId.isNotBlank() && mistSiteId != "all",
+                    arubaEnabled        = arubaClientId.isNotBlank(),
                     arubaSiteConfigured = arubaSiteId.isNotBlank(),
                     arubaSiteId      = arubaSiteId,
                     onLoadMistMaps   = viewModel::loadMistMaps,
@@ -596,7 +601,9 @@ private fun FloorMapsCard(
     mistMaps: List<MistMap>,
     arubaBuildings: List<ArubaBuilding>,
     mapImportStatus: MapImportStatus,
+    mistEnabled: Boolean,
     mistSiteConfigured: Boolean,
+    arubaEnabled: Boolean,
     arubaSiteConfigured: Boolean,
     arubaSiteId: String,
     onLoadMistMaps: () -> Unit,
@@ -611,6 +618,10 @@ private fun FloorMapsCard(
         // Mist section
         Text("Mist", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
+        if (mistEnabled && !mistSiteConfigured) {
+            SiteNotSelectedHint("Select a Site in Mist Configuration above to load floor maps")
+            Spacer(Modifier.height(6.dp))
+        }
         OutlinedButton(
             onClick  = onLoadMistMaps,
             enabled  = mistSiteConfigured && mapImportStatus !is MapImportStatus.Loading,
@@ -645,6 +656,10 @@ private fun FloorMapsCard(
         // Aruba section
         Text("Aruba Central", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
+        if (arubaEnabled && !arubaSiteConfigured) {
+            SiteNotSelectedHint("Select a Site in Aruba Central Configuration above to load floor maps")
+            Spacer(Modifier.height(6.dp))
+        }
         OutlinedButton(
             onClick  = onLoadArubaBuildings,
             enabled  = arubaSiteConfigured && mapImportStatus !is MapImportStatus.Loading,
@@ -738,6 +753,33 @@ private fun FloorMapsCard(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SiteNotSelectedHint(message: String) {
+    Surface(
+        color    = MaterialTheme.colorScheme.secondaryContainer,
+        shape    = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier          = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Info,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint     = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text  = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
         }
     }
 }

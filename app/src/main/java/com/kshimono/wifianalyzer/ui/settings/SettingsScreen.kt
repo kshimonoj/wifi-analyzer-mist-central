@@ -122,6 +122,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
     val arubaSites        by viewModel.arubaSites.collectAsStateWithLifecycle()
     val arubaSiteId       by viewModel.arubaSiteId.collectAsStateWithLifecycle()
     val arubaSiteName     by viewModel.arubaSiteName.collectAsStateWithLifecycle()
+    val arubaAccessToken  by viewModel.arubaAccessToken.collectAsStateWithLifecycle()
 
     val floorMaps        by viewModel.floorMaps.collectAsStateWithLifecycle()
     val mistMaps         by viewModel.mistMaps.collectAsStateWithLifecycle()
@@ -231,8 +232,9 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                     arubaBuildings   = arubaBuildings,
                     mapImportStatus  = mapImportStatus,
                     mistEnabled         = token.isNotBlank(),
+                    mistSiteId          = mistSiteId,
                     mistSiteConfigured  = mistSiteId.isNotBlank() && mistSiteId != "all",
-                    arubaEnabled        = arubaClientId.isNotBlank(),
+                    arubaEnabled        = arubaAccessToken.isNotBlank(),
                     arubaSiteConfigured = arubaSiteId.isNotBlank(),
                     arubaSiteId      = arubaSiteId,
                     onLoadMistMaps   = viewModel::loadMistMaps,
@@ -628,6 +630,7 @@ private fun FloorMapsCard(
     arubaBuildings: List<ArubaBuilding>,
     mapImportStatus: MapImportStatus,
     mistEnabled: Boolean,
+    mistSiteId: String,
     mistSiteConfigured: Boolean,
     arubaEnabled: Boolean,
     arubaSiteConfigured: Boolean,
@@ -644,7 +647,7 @@ private fun FloorMapsCard(
         // Mist section
         Text("Mist", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
-        if (mistEnabled && !mistSiteConfigured) {
+        if (mistEnabled && mistSiteId.isBlank()) {
             SiteNotSelectedHint("Select a Site in Mist Configuration above to load floor maps")
             Spacer(Modifier.height(6.dp))
         }
@@ -682,7 +685,7 @@ private fun FloorMapsCard(
         // Aruba section
         Text("Aruba Central", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
-        if (arubaEnabled && !arubaSiteConfigured) {
+        if (arubaEnabled && arubaSiteId.isBlank()) {
             SiteNotSelectedHint("Select a Site in Aruba Central Configuration above to load floor maps")
             Spacer(Modifier.height(6.dp))
         }

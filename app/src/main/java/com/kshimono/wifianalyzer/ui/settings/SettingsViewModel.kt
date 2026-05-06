@@ -67,6 +67,7 @@ class SettingsViewModel @Inject constructor(
     val arubaCluster      = settings.arubaCluster     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "internal.api.central.arubanetworks.com")
     val arubaSiteId       = settings.arubaSiteId      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
     val arubaSiteName     = settings.arubaSiteName    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "All Sites")
+    val arubaAccessToken  = settings.arubaAccessToken .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
 
     private val _orgs = MutableStateFlow<List<MistOrg>>(emptyList())
     val orgs: StateFlow<List<MistOrg>> = _orgs.asStateFlow()

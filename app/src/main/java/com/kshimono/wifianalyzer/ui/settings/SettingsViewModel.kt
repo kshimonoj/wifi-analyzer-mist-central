@@ -174,6 +174,20 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun disconnectMist() {
+        viewModelScope.launch(exceptionHandler) {
+            settings.setMistToken("")
+            settings.setMistOrgId("")
+            settings.setMistOrgName("")
+            settings.setMistSiteId("")
+            settings.setMistSiteName("")
+            _connectionTestResult.value = ""
+            _orgs.value = emptyList()
+            _sites.value = emptyList()
+            _syncStatus.value = SyncStatus.Idle
+        }
+    }
+
     fun syncAps() {
         viewModelScope.launch(exceptionHandler) {
             _syncStatus.value = SyncStatus.Syncing
@@ -228,6 +242,20 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch(exceptionHandler) {
             settings.setArubaSiteId(siteId)
             settings.setArubaSiteName(siteName)
+        }
+    }
+
+    fun disconnectAruba() {
+        viewModelScope.launch(exceptionHandler) {
+            settings.setArubaClientId("")
+            settings.setArubaClientSecret("")
+            settings.setArubaAccessToken("")
+            settings.setArubaTokenExpiresAt(0)
+            settings.setArubaSiteId("")
+            settings.setArubaSiteName("")
+            _arubaConnectionTestResult.value = ""
+            _arubaSites.value = emptyList()
+            _arubaSyncStatus.value = SyncStatus.Idle
         }
     }
 

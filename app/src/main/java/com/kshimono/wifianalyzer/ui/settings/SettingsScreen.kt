@@ -4,6 +4,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -199,6 +201,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                 onTokenChange    = viewModel::updateMistToken,
                 onRegionChange   = viewModel::updateMistRegion,
                 onTestConnection = viewModel::testConnection,
+                onDisconnect     = viewModel::disconnectMist,
                 onSelectOrg      = viewModel::selectOrg,
                 onSelectSite     = { id, name -> viewModel.selectSite(id, name) },
                 onSyncAps        = viewModel::syncAps,
@@ -217,6 +220,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                 onClientSecretChange = viewModel::updateArubaClientSecret,
                 onClusterChange      = viewModel::updateArubaCluster,
                 onTestConnection     = viewModel::testArubaConnection,
+                onDisconnect         = viewModel::disconnectAruba,
                 onSelectSite         = { id, name -> viewModel.selectArubaSite(id, name) },
                 onSyncAps            = viewModel::syncArubaAps,
             ) }
@@ -252,6 +256,7 @@ private fun MistConfigCard(
     apCount: Int, syncStatus: SyncStatus, connectionResult: String,
     onTokenChange: (String) -> Unit, onRegionChange: (String) -> Unit,
     onTestConnection: () -> Unit,
+    onDisconnect: () -> Unit,
     onSelectOrg: (com.kshimono.wifianalyzer.data.mist.MistOrg) -> Unit,
     onSelectSite: (String, String) -> Unit,
     onSyncAps: () -> Unit,
@@ -301,6 +306,16 @@ private fun MistConfigCard(
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 4.dp),
             )
+        }
+
+        if (token.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick  = onDisconnect,
+                modifier = Modifier.fillMaxWidth(),
+                colors   = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                border   = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+            ) { Text("Disconnect") }
         }
 
         // Org selector (shown after successful connection test)
@@ -444,6 +459,7 @@ private fun ArubaCard(
     onClientIdChange: (String) -> Unit, onClientSecretChange: (String) -> Unit,
     onClusterChange: (String) -> Unit,
     onTestConnection: () -> Unit,
+    onDisconnect: () -> Unit,
     onSelectSite: (String, String) -> Unit,
     onSyncAps: () -> Unit,
 ) {
@@ -502,6 +518,16 @@ private fun ArubaCard(
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 4.dp),
             )
+        }
+
+        if (clientId.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick  = onDisconnect,
+                modifier = Modifier.fillMaxWidth(),
+                colors   = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                border   = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+            ) { Text("Disconnect") }
         }
 
         // Site selector (shown after successful connection)

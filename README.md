@@ -39,7 +39,12 @@ AP name resolution via Juniper Mist and HPE Aruba Central APIs, and snapshot-bas
 
 - Android 10 (API 29) or higher
 - Location permission (required for Wi-Fi scanning)
-- Tested on Pixel 9
+
+## Tested Devices
+
+| Device | Android Version | Notes |
+|--------|----------------|-------|
+| Pixel 9 | Android 16 | Primary test device |
 
 ## Tech Stack
 
@@ -125,6 +130,22 @@ docker-compose up
 ```
 
 See [analyzer/README.md](analyzer/README.md) for details.
+
+## Known Limitations
+
+### Wi-Fi Scan Throttling (Android 9+)
+
+Android 9 and later enforce OS-level limits on Wi-Fi scan frequency:
+
+- **Foreground**: up to 4 scans per 2 minutes
+- **Background**: up to 1 scan per 30 minutes
+
+When the limit is reached, the app displays cached results from the previous scan and shows the warning banner **"Scan throttled by OS – showing cached results"** on the scan screen.
+
+Additional notes:
+- Other apps performing Wi-Fi scans contribute to the same quota, making throttling more likely in busy environments.
+- Using Auto-scan with a short interval (e.g. 5 s) increases the chance of hitting the limit quickly.
+- Throttling strictness may vary by device manufacturer and Android version.
 
 ## Screenshots
 

@@ -196,3 +196,134 @@ def load_survey_zip(zip_bytes: bytes) -> SurveyData:
         map_width_m=map_width_m,
         map_height_m=map_height_m,
     )
+
+
+def get_roaming_indices(snapshots):
+    """時刻順に並んだスナップショットリストからローミング発生インデックスを返す（0-indexed）"""
+    indices = []
+    for i in range(1, len(snapshots)):
+        if snapshots[i].connected_ap != snapshots[i - 1].connected_ap:
+            indices.append(i)
+    return indices
+
+
+def compute_unmanaged_interference(snapshots):
+    """各スナップショットの管理外AP干渉データを返す"""
+    result = []
+    for s in snapshots:
+        named_bssids = set()
+        hidden_bssids = set()
+        max_rssi = None
+        for r in s.raw_bssids:
+            if r.get('aruba_ap_name') or r.get('mist_ap_name'):
+                continue
+            try:
+                rssi = int(r.get('rssi_dbm', 0) or 0)
+            except Exception:
+                continue
+            if rssi >= 0:
+                continue
+            bssid = r.get('bssid', '')
+            ssid = r.get('ssid', '')
+            if ssid:
+                named_bssids.add(bssid)
+            else:
+                hidden_bssids.add(bssid)
+            if max_rssi is None or rssi > max_rssi:
+                max_rssi = rssi
+        result.append({
+            'named': len(named_bssids),
+            'hidden': len(hidden_bssids),
+            'max_rssi': max_rssi,
+        })
+    return result
+
+
+def compute_co_channel_interference(snapshots):
+    """各スナップショットの同チャネル干渉データを返す"""
+    result = []
+    for s in snapshots:
+        conn_bssid_lc = s.connected_bssid.lower() if s.connected_bssid else ''
+        connected_ch = None
+        for r in s.raw_bssids:
+            if r.get('bssid', '').lower() == conn_bssid_lc:
+                try:
+                    connected_ch = int(r.get('channel', 0) or 0)
+                except Exception:
+                    pass
+                break
+
+        managed_ap_names = set()
+        unmanaged_bssids = set()
+        if connected_ch is not None:
+            for r in s.raw_bssids:
+                if r.get('bssid', '').lower() == conn_bssid_lc:
+                    continue
+                try:
+                    ch = int(r.get('channel', 0) or 0)
+                    rssi = int(r.get('rssi_dbm', 0) or 0)
+                except Exception:
+                    continue
+                if ch != connected_ch or rssi >= 0:
+                    continue
+                ap_name = r.get('aruba_ap_name') or r.get('mist_ap_name')
+                if ap_name:
+                    managed_ap_names.add(ap_name)
+                else:
+                    bssid = r.get('bssid', '')
+                    if bssid:
+                        unmanaged_bssids.add(bssid)
+
+        result.append({
+            'channel': connected_ch,
+            'managed': len(managed_ap_names),
+            'unmanaged': len(unmanaged_bssids),
+        })
+    return result
+
+
+def compute_optimal_ap_check(snapshots):
+    """各スナップショットの最適AP選択チェックデータを返す"""
+    result = []
+    for s in snapshots:
+        conn_bssid_lc = s.connected_bssid.lower() if s.connected_bssid else ''
+        connected_ssid = s.connected_ssid
+
+        connected_rssi = None
+        for r in s.raw_bssids:
+            if r.get('bssid', '').lower() == conn_bssid_lc:
+                try:
+                    connected_rssi = int(r.get('rssi_dbm', 0) or 0)
+                except Exception:
+                    pass
+                if not connected_ssid:
+                    connected_ssid = r.get('ssid', '')
+                break
+
+        best_rssi = None
+        best_ap_name = None
+        for r in s.raw_bssids:
+            if connected_ssid and r.get('ssid', '') != connected_ssid:
+                continue
+            ap_name = r.get('aruba_ap_name') or r.get('mist_ap_name')
+            if not ap_name:
+                continue
+            try:
+                rssi = int(r.get('rssi_dbm', 0) or 0)
+            except Exception:
+                continue
+            if rssi >= 0:
+                continue
+            if best_rssi is None or rssi > best_rssi:
+                best_rssi = rssi
+                best_ap_name = ap_name
+
+        is_optimal = (best_ap_name is None or best_ap_name == s.connected_ap)
+
+        result.append({
+            'connected_rssi': connected_rssi,
+            'best_rssi': best_rssi,
+            'best_ap_name': best_ap_name,
+            'is_optimal': is_optimal,
+        })
+    return result

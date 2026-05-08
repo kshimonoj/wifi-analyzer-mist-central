@@ -10,4 +10,5 @@ data class ConnectedApInfo(
     val linkSpeedMbps: Int,
     val rxLinkSpeedMbps: Int,
     val timestamp: Long,
+    val apName: String? = null,
 )

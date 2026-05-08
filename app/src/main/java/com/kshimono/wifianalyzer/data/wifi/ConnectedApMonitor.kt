@@ -3,17 +3,19 @@ package com.kshimono.wifianalyzer.data.wifi
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Build
+import com.kshimono.wifianalyzer.data.aruba.ArubaRepository
+import com.kshimono.wifianalyzer.data.mist.MistRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,12 +24,19 @@ private const val MAX_CONNECTED_HISTORY = 60
 @Singleton
 class ConnectedApMonitor @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val mistRepository: MistRepository,
+    private val arubaRepository: ArubaRepository,
+    private val scanner: WifiScanner,
 ) {
     private val wifiManager =
         context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
 
+    private val _monitorHistory = MutableStateFlow<List<MonitorEntry>>(emptyList())
+    val monitorHistory: StateFlow<List<MonitorEntry>> = _monitorHistory.asStateFlow()
+
+    // Backward-compat view for any existing callers
+    val connectedHistory: StateFlow<List<ConnectedApInfo>> get() = _connectedHistory
     private val _connectedHistory = MutableStateFlow<List<ConnectedApInfo>>(emptyList())
-    val connectedHistory: StateFlow<List<ConnectedApInfo>> = _connectedHistory.asStateFlow()
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var monitorJob: Job? = null
@@ -62,7 +71,9 @@ class ConnectedApMonitor @Inject constructor(
         }
         val rxSpeed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
             info.rxLinkSpeedMbps else -1
-        val entry = ConnectedApInfo(
+        val apName = mistRepository.findApNameByBssid(bssid)
+            ?: arubaRepository.findApNameByBssid(bssid)
+        val connectedInfo = ConnectedApInfo(
             ssid            = info.ssid?.removeSurrounding("\"") ?: "",
             bssid           = bssid,
             rssi            = info.rssi,
@@ -72,10 +83,16 @@ class ConnectedApMonitor @Inject constructor(
             linkSpeedMbps   = info.linkSpeed,
             rxLinkSpeedMbps = rxSpeed,
             timestamp       = System.currentTimeMillis(),
+            apName          = apName,
         )
-        val current = _connectedHistory.value.toMutableList()
-        current.add(entry)
-        if (current.size > MAX_CONNECTED_HISTORY) current.removeAt(0)
-        _connectedHistory.value = current
+        val entry = MonitorEntry(
+            connected   = connectedInfo,
+            scanResults = scanner.scanResults.value,
+        )
+        val currentEntries = _monitorHistory.value.toMutableList()
+        currentEntries.add(entry)
+        if (currentEntries.size > MAX_CONNECTED_HISTORY) currentEntries.removeAt(0)
+        _monitorHistory.value = currentEntries
+        _connectedHistory.value = currentEntries.map { it.connected }
     }
 }

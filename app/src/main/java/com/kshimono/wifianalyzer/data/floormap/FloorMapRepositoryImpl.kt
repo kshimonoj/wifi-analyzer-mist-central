@@ -130,8 +130,11 @@ class FloorMapRepositoryImpl @Inject constructor(
             val file = File(mapDir, "mist_${map.id}.png")
             file.writeBytes(bytes)
 
-            val scaleM = if (map.widthM != null && map.width != null && map.width > 0)
-                map.width.toDouble() / map.widthM else null
+            val widthPx  = opts.outWidth.takeIf  { it > 0 } ?: (map.width  ?: 0)
+            val heightPx = opts.outHeight.takeIf { it > 0 } ?: (map.height ?: 0)
+            val scaleM = if (map.widthM != null && widthPx > 0)
+                widthPx.toDouble() / map.widthM else null
+            Log.d(TAG, "importFromMist: widthPx=$widthPx heightPx=$heightPx widthM=${map.widthM} heightM=${map.heightM}")
 
             floorMapDao.insert(
                 FloorMapEntity(
@@ -140,8 +143,8 @@ class FloorMapRepositoryImpl @Inject constructor(
                     siteId  = map.siteId,
                     floorId = map.id,
                     imageUri     = "file://${file.absolutePath}",
-                    widthPx      = opts.outWidth.takeIf { it > 0 } ?: (map.width ?: 0),
-                    heightPx     = opts.outHeight.takeIf { it > 0 } ?: (map.height ?: 0),
+                    widthPx      = widthPx,
+                    heightPx     = heightPx,
                     widthM       = map.widthM,
                     heightM      = map.heightM,
                     scalePixelsPerMeter = scaleM,
@@ -278,14 +281,17 @@ class FloorMapRepositoryImpl @Inject constructor(
                     runCatching { json.encodeToString(radios) }.getOrNull()
                 } else null
 
+                val relX = (ap.x!! / floorMap.widthPx).toFloat().coerceIn(0f, 1f)
+                val relY = (ap.y!! / floorMap.heightPx).toFloat().coerceIn(0f, 1f)
+                Log.d(TAG, "syncAP: ${ap.name} x=${ap.x} y=${ap.y} relX=$relX relY=$relY")
                 ApLocationEntity(
                     floorMapId = floorMap.id,
                     apName     = ap.name ?: "Unknown",
                     macAddress = ap.mac,
                     model      = ap.model,
                     source     = "mist",
-                    mapX       = (ap.x!! / floorMap.widthPx).toFloat().coerceIn(0f, 1f),
-                    mapY       = (ap.y!! / floorMap.heightPx).toFloat().coerceIn(0f, 1f),
+                    mapX       = relX,
+                    mapY       = relY,
                     status     = ap.status,
                     radiosJson = radiosJson,
                 )

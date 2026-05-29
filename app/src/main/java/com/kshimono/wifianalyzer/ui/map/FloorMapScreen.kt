@@ -578,9 +578,28 @@ private fun MapCanvas(
                         onPlace(relX, relY)
                     } else if (showAps) {
                         val tapRadius = maxOf(24f, (12f * scale).coerceIn(16f, 48f) * 1.5f)
+                        val cW = size.width.toFloat()
+                        val cH = size.height.toFloat()
+                        val tapAspect = if (map.widthPx > 0 && map.heightPx > 0)
+                            map.widthPx.toFloat() / map.heightPx.toFloat() else 1f
+                        val tapImgW: Float
+                        val tapImgH: Float
+                        val tapImgL: Float
+                        val tapImgT: Float
+                        if (cW / cH > tapAspect) {
+                            tapImgH = cH
+                            tapImgW = tapImgH * tapAspect
+                            tapImgL = (cW - tapImgW) / 2f
+                            tapImgT = 0f
+                        } else {
+                            tapImgW = cW
+                            tapImgH = tapImgW / tapAspect
+                            tapImgL = 0f
+                            tapImgT = (cH - tapImgH) / 2f
+                        }
                         val tapped = apLocations.firstOrNull { ap ->
-                            val ax = size.width  * (0.5f + scale * (ap.mapX - 0.5f)) + offset.x
-                            val ay = size.height * (0.5f + scale * (ap.mapY - 0.5f)) + offset.y
+                            val ax = (tapImgL + ap.mapX * tapImgW - cW / 2f) * scale + cW / 2f + offset.x
+                            val ay = (tapImgT + ap.mapY * tapImgH - cH / 2f) * scale + cH / 2f + offset.y
                             val dx = tapOffset.x - ax
                             val dy = tapOffset.y - ay
                             dx * dx + dy * dy <= tapRadius * tapRadius
@@ -661,6 +680,25 @@ private fun MapCanvas(
             val pinRadius = (12f * scale).coerceIn(16f, 48f)
             val apSize    = (12f * scale).coerceIn(14f, 44f)
 
+            // Actual image display area within canvas (ContentScale.Fit may leave padding)
+            val imgAspect = if (map.widthPx > 0 && map.heightPx > 0)
+                map.widthPx.toFloat() / map.heightPx.toFloat() else 1f
+            val imgW: Float
+            val imgH: Float
+            val imgLeft: Float
+            val imgTop: Float
+            if (size.width / size.height > imgAspect) {
+                imgH = size.height
+                imgW = imgH * imgAspect
+                imgLeft = (size.width - imgW) / 2f
+                imgTop = 0f
+            } else {
+                imgW = size.width
+                imgH = imgW / imgAspect
+                imgLeft = 0f
+                imgTop = (size.height - imgH) / 2f
+            }
+
             // ── Snapshot pins ───────────────────────────────────────────────
             placedSnapshots.forEach { sp ->
                 val isDragging = sp.snapshot.id == draggingId
@@ -708,8 +746,8 @@ private fun MapCanvas(
 
                     val sx = size.width  * (0.5f + scale * (sp.mapX - 0.5f)) + offset.x
                     val sy = size.height * (0.5f + scale * (sp.mapY - 0.5f)) + offset.y
-                    val ax = size.width  * (0.5f + scale * (connectedAp.mapX - 0.5f)) + offset.x
-                    val ay = size.height * (0.5f + scale * (connectedAp.mapY - 0.5f)) + offset.y
+                    val ax = (imgLeft + connectedAp.mapX * imgW - size.width  / 2f) * scale + size.width  / 2f + offset.x
+                    val ay = (imgTop  + connectedAp.mapY * imgH - size.height / 2f) * scale + size.height / 2f + offset.y
 
                     val lineColor = when {
                         sp.maxRssi >= -65 -> Color(0xFF1D9E75)
@@ -745,8 +783,8 @@ private fun MapCanvas(
             // ── AP pins ─────────────────────────────────────────────────────
             if (showAps) {
                 apLocations.forEach { ap ->
-                    val x = size.width  * (0.5f + scale * (ap.mapX - 0.5f)) + offset.x
-                    val y = size.height * (0.5f + scale * (ap.mapY - 0.5f)) + offset.y
+                    val x = (imgLeft + ap.mapX * imgW - size.width  / 2f) * scale + size.width  / 2f + offset.x
+                    val y = (imgTop  + ap.mapY * imgH - size.height / 2f) * scale + size.height / 2f + offset.y
 
                     val apColor = when (ap.status?.uppercase()) {
                         "ONLINE"  -> Color(0xFF2980B9)

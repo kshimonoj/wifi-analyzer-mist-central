@@ -16,6 +16,7 @@ local.properties
 
 # Secrets
 .env
+.env.*
 *.keystore
 *.jks
 

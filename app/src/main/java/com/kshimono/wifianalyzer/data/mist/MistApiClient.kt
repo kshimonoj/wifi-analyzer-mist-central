@@ -7,6 +7,7 @@ import io.ktor.client.engine.android.Android
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
@@ -99,6 +100,35 @@ class MistApiClient @Inject constructor() {
             MistResult.Success(resp.body<T>())
         }.getOrElse { e -> MistResult.Error(networkError(e)) }
 
+    /**
+     * limit=1000 + page でリスト系エンドポイントを全件取得する。
+     * 1ページの件数が limit 未満になったら最終ページとみなして打ち切る。
+     */
+    private suspend inline fun <reified T> safeGetAllPages(
+        url: String,
+        limit: Int = 1000,
+        maxPages: Int = 100,
+    ): MistResult<List<T>> =
+        runCatching {
+            val all = mutableListOf<T>()
+            var page = 1
+            while (page <= maxPages) {
+                val resp: HttpResponse = http.get(url) {
+                    header("Authorization", authHeader())
+                    parameter("limit", limit)
+                    parameter("page", page)
+                }
+                Log.d(TAG, "GET $url (page=$page) → ${resp.status.value}")
+                if (!resp.status.isSuccess()) return MistResult.Error(httpError(resp.status.value))
+                val pageData = resp.body<List<T>>()
+                all.addAll(pageData)
+                if (pageData.size < limit) break
+                page++
+            }
+            Log.d(TAG, "GET $url fetched ${all.size} items over $page page(s)")
+            MistResult.Success<List<T>>(all)
+        }.getOrElse { e -> MistResult.Error(networkError(e)) }
+
     suspend fun getSelf(): MistResult<List<MistOrg>> =
         when (val r = safeGet<MistSelfResponse>("${baseUrl()}/self")) {
             is MistResult.Error   -> MistResult.Error(r.message)
@@ -114,7 +144,7 @@ class MistApiClient @Inject constructor() {
         safeGet("${baseUrl()}/orgs/$orgId/sites")
 
     suspend fun getAps(orgId: String, siteId: String?): MistResult<List<MistApDevice>> =
-        when (val r = safeGet<List<MistApDevice>>("${baseUrl()}/orgs/$orgId/inventory?type=ap")) {
+        when (val r = safeGetAllPages<MistApDevice>("${baseUrl()}/orgs/$orgId/inventory?type=ap")) {
             is MistResult.Error   -> MistResult.Error(r.message)
             is MistResult.Success -> {
                 val filtered = if (siteId != null && siteId != "all")
@@ -124,7 +154,7 @@ class MistApiClient @Inject constructor() {
         }
 
     suspend fun getRadioMacs(orgId: String): MistResult<List<MistRadioMac>> =
-        safeGet("${baseUrl()}/orgs/$orgId/devices/radio_macs")
+        safeGetAllPages("${baseUrl()}/orgs/$orgId/devices/radio_macs")
 
     suspend fun getMaps(siteId: String): MistResult<List<MistMap>> =
         safeGet("${baseUrl()}/sites/$siteId/maps")

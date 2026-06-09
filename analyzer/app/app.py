@@ -458,8 +458,11 @@ st.plotly_chart(fig7, use_container_width=True)
 with st.expander("Detailed Data Table"):
     table_rows = []
     for s in data.snapshots:
+        timestamp = s.timestamp or ''
+        time_display = timestamp.replace('T', ' ') if 'T' in timestamp else timestamp
         row = {
-            'Time': s.name[-8:],
+            'Time': time_display,
+            'Snapshot Name': s.name,
             'Connected AP': s.connected_ap,
             'Connected RSSI': s.ap_best_rssi.get(s.connected_ap, '-'),
             'Map X': f"{s.map_x:.3f}" if s.map_x else '-',
@@ -476,6 +479,104 @@ with st.expander("Detailed Data Table"):
 
     df_table = pd.DataFrame(table_rows)
     st.dataframe(df_table, use_container_width=True)
+
+# ========== Surrounding AP RSSI Matrix ==========
+st.subheader("Surrounding AP RSSI Matrix")
+
+# 列(測定点)情報を作成
+columns = []
+connected_aps_set = set()
+for s in data.snapshots:
+    conn_rssi = s.ap_best_rssi.get(s.connected_ap)
+    conn_rssi = conn_rssi if (conn_rssi is not None and conn_rssi > -999) else None
+    conn_str = f"{int(conn_rssi)} dBm" if conn_rssi is not None else "-"
+    # 列ヘッダー用 (3行: AP名 / RSSI / Snapshot名)
+    label = f"{s.connected_ap or '(none)'}\n({conn_str})\n{s.name}"
+    # selectbox表示用 (1行)
+    display_label = f"{s.connected_ap or '(none)'} ({conn_str}) - {s.name}"
+    columns.append({
+        'label': label,
+        'display_label': display_label,
+        'snapshot': s,
+        'connected_ap': s.connected_ap,
+    })
+    if s.connected_ap:
+        connected_aps_set.add(s.connected_ap)
+
+# 周辺AP一覧 (Connected AP自身は除外)
+surrounding_aps = set()
+for s in data.snapshots:
+    for ap, rssi in s.ap_best_rssi.items():
+        if ap in connected_aps_set:
+            continue
+        if rssi is not None and rssi > -999:
+            surrounding_aps.add(ap)
+
+if not columns or not surrounding_aps:
+    st.info("Not enough data for surrounding AP matrix.")
+else:
+    # マトリクス構築: 行=周辺AP, 列=測定点ラベル
+    matrix = {}
+    for ap in surrounding_aps:
+        row = {}
+        for col in columns:
+            rssi = col['snapshot'].ap_best_rssi.get(ap)
+            row[col['label']] = rssi if (rssi is not None and rssi > -999) else None
+        matrix[ap] = row
+
+    col_labels = [c['label'] for c in columns]
+    df_matrix = pd.DataFrame(matrix).T
+    df_matrix = df_matrix.reindex(columns=col_labels)
+
+    # selectbox表示用ラベル → 列ラベル(改行付き) のマッピング
+    display_labels = [c['display_label'] for c in columns]
+    display_to_col = {c['display_label']: c['label'] for c in columns}
+
+    # ソートUI
+    c1, c2 = st.columns(2)
+    with c1:
+        sort_display = st.selectbox("Sort by column", display_labels, key="surr_sort_col")
+    with c2:
+        order = st.radio("Order", ["Strongest first", "Weakest first"],
+                         horizontal=True, key="surr_sort_order")
+    ascending = (order == "Weakest first")
+    sort_col = display_to_col[sort_display]
+
+    # 選んだ列でソート。値なし(None)は常に最下部。
+    key = df_matrix[sort_col]
+    has_value = key.notna()
+    df_top = df_matrix[has_value].copy()
+    df_bottom = df_matrix[~has_value].copy()
+    df_top = df_top.sort_values(sort_col, ascending=ascending)
+    df_matrix = pd.concat([df_top, df_bottom])
+
+    # 表示用フォーマット
+    def _fmt(v):
+        return "-" if pd.isna(v) else f"{int(v)} dBm"
+    df_display = df_matrix.map(_fmt)
+    df_display.index.name = "Surrounding AP"
+
+    # 色分け
+    def color_rssi(val):
+        if val == "-":
+            return ""
+        try:
+            v = int(str(val).replace(" dBm", ""))
+        except Exception:
+            return ""
+        if v >= -65:
+            return "background-color: #E1F5EE"
+        if v >= -75:
+            return "background-color: #FAEEDA"
+        return "background-color: #FAECE7"
+
+    styled = df_display.style.map(color_rssi)
+    st.dataframe(styled, use_container_width=True)
+    st.caption(
+        "Rows = surrounding APs · Columns = measurement points. "
+        "Sorted by the selected column. Rows with no value in that column are at the bottom. "
+        "🟢 ≥ -65 dBm · 🟡 -65~-75 dBm · 🔴 < -75 dBm"
+    )
 
 # ========== Map & AP Info ==========
 with st.expander("Map & AP Info"):

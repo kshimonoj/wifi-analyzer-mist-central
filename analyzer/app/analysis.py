@@ -165,7 +165,7 @@ def load_survey_zip(zip_bytes: bytes) -> SurveyData:
 
         sp = SnapshotPoint(
             name=snap_name,
-            timestamp=snap_name,
+            timestamp=(r0.get('timestamp', '') or snap_name),
             map_x=map_x,
             map_y=map_y,
             connected_ssid=connected_ssid,

@@ -532,6 +532,35 @@ private fun matchApByBssidOrName(
     return false
 }
 
+// ── Coordinate frame (image-relative, letterbox-aware) ───────────────────────
+// ContentScale.Fit leaves padding when the canvas aspect differs from the image.
+// Both AP and snapshot coordinates are stored as 0..1 relative to the IMAGE (not
+// the canvas), so all pixel conversions go through this same image rect. Keeping
+// snapshots in the image frame makes the exported map_x_relative consistent with
+// AP map_x, so the web analyzer renders them at the matching position.
+private data class ImgRect(val left: Float, val top: Float, val width: Float, val height: Float)
+
+private fun mapImageRect(canvasW: Float, canvasH: Float, mapWpx: Int, mapHpx: Int): ImgRect {
+    val aspect = if (mapWpx > 0 && mapHpx > 0) mapWpx.toFloat() / mapHpx.toFloat() else 1f
+    return if (canvasW / canvasH > aspect) {
+        val h = canvasH
+        val w = h * aspect
+        ImgRect((canvasW - w) / 2f, 0f, w, h)
+    } else {
+        val w = canvasW
+        val h = w / aspect
+        ImgRect(0f, (canvasH - h) / 2f, w, h)
+    }
+}
+
+// image-relative (0..1) → screen pixel, along one axis (matches AP rendering)
+private fun relToScreen(rel: Float, imgStart: Float, imgSize: Float, canvasSize: Float, scale: Float, off: Float): Float =
+    (imgStart + rel * imgSize - canvasSize / 2f) * scale + canvasSize / 2f + off
+
+// screen pixel → image-relative (0..1), along one axis (inverse of relToScreen)
+private fun screenToRel(px: Float, imgStart: Float, imgSize: Float, canvasSize: Float, scale: Float, off: Float): Float =
+    ((px - off - canvasSize / 2f) / scale + canvasSize / 2f - imgStart) / imgSize
+
 @Composable
 private fun MapCanvas(
     map: com.kshimono.wifianalyzer.data.db.entities.FloorMapEntity,
@@ -570,36 +599,21 @@ private fun MapCanvas(
             // Gesture 2: Tap — place snapshot or tap AP
             .pointerInput(selectedForPlacement, showAps, apLocations) {
                 detectTapGestures { tapOffset ->
-                    val cx = size.width  / 2f
-                    val cy = size.height / 2f
+                    val cW = size.width.toFloat()
+                    val cH = size.height.toFloat()
+                    // Image display rect (ContentScale.Fit) — snapshots & APs share this frame
+                    val rect = mapImageRect(cW, cH, map.widthPx, map.heightPx)
                     if (selectedForPlacement != null) {
-                        val relX = ((tapOffset.x - offset.x - cx) / (scale * size.width)  + 0.5f).coerceIn(0f, 1f)
-                        val relY = ((tapOffset.y - offset.y - cy) / (scale * size.height) + 0.5f).coerceIn(0f, 1f)
+                        // Store snapshot position relative to the IMAGE (not the canvas),
+                        // matching AP coordinates so exports line up in the web analyzer.
+                        val relX = screenToRel(tapOffset.x, rect.left, rect.width, cW, scale, offset.x).coerceIn(0f, 1f)
+                        val relY = screenToRel(tapOffset.y, rect.top, rect.height, cH, scale, offset.y).coerceIn(0f, 1f)
                         onPlace(relX, relY)
                     } else if (showAps) {
                         val tapRadius = maxOf(24f, (12f * scale).coerceIn(16f, 48f) * 1.5f)
-                        val cW = size.width.toFloat()
-                        val cH = size.height.toFloat()
-                        val tapAspect = if (map.widthPx > 0 && map.heightPx > 0)
-                            map.widthPx.toFloat() / map.heightPx.toFloat() else 1f
-                        val tapImgW: Float
-                        val tapImgH: Float
-                        val tapImgL: Float
-                        val tapImgT: Float
-                        if (cW / cH > tapAspect) {
-                            tapImgH = cH
-                            tapImgW = tapImgH * tapAspect
-                            tapImgL = (cW - tapImgW) / 2f
-                            tapImgT = 0f
-                        } else {
-                            tapImgW = cW
-                            tapImgH = tapImgW / tapAspect
-                            tapImgL = 0f
-                            tapImgT = (cH - tapImgH) / 2f
-                        }
                         val tapped = apLocations.firstOrNull { ap ->
-                            val ax = (tapImgL + ap.mapX * tapImgW - cW / 2f) * scale + cW / 2f + offset.x
-                            val ay = (tapImgT + ap.mapY * tapImgH - cH / 2f) * scale + cH / 2f + offset.y
+                            val ax = relToScreen(ap.mapX, rect.left, rect.width, cW, scale, offset.x)
+                            val ay = relToScreen(ap.mapY, rect.top, rect.height, cH, scale, offset.y)
                             val dx = tapOffset.x - ax
                             val dy = tapOffset.y - ay
                             dx * dx + dy * dy <= tapRadius * tapRadius
@@ -614,15 +628,18 @@ private fun MapCanvas(
                 detectDragGesturesAfterLongPress(
                     onDragStart = { startOffset ->
                         totalDrag = Offset.Zero
+                        val cW = size.width.toFloat()
+                        val cH = size.height.toFloat()
+                        val rect = mapImageRect(cW, cH, map.widthPx, map.heightPx)
                         val nearestPin = placedSnapshots.minByOrNull { sp ->
-                            val px = size.width  * (0.5f + scale * (sp.mapX - 0.5f)) + offset.x
-                            val py = size.height * (0.5f + scale * (sp.mapY - 0.5f)) + offset.y
+                            val px = relToScreen(sp.mapX, rect.left, rect.width, cW, scale, offset.x)
+                            val py = relToScreen(sp.mapY, rect.top, rect.height, cH, scale, offset.y)
                             (startOffset.x - px) * (startOffset.x - px) +
                             (startOffset.y - py) * (startOffset.y - py)
                         }
                         if (nearestPin != null) {
-                            val px = size.width  * (0.5f + scale * (nearestPin.mapX - 0.5f)) + offset.x
-                            val py = size.height * (0.5f + scale * (nearestPin.mapY - 0.5f)) + offset.y
+                            val px = relToScreen(nearestPin.mapX, rect.left, rect.width, cW, scale, offset.x)
+                            val py = relToScreen(nearestPin.mapY, rect.top, rect.height, cH, scale, offset.y)
                             val dx = startOffset.x - px
                             val dy = startOffset.y - py
                             val dragRadius = (12f * scale).coerceIn(16f, 48f) * 2f
@@ -648,11 +665,12 @@ private fun MapCanvas(
                                 val snap = placedSnapshots.firstOrNull { it.snapshot.id == snapId }
                                 if (snap != null) onLongPressPin(snapId, snap.snapshot.name)
                             } else {
-                                // Actual drag → save new position
-                                val cx   = size.width  / 2f
-                                val cy   = size.height / 2f
-                                val newRelX = ((draggingPos.x - offset.x - cx) / (scale * size.width)  + 0.5f).coerceIn(0f, 1f)
-                                val newRelY = ((draggingPos.y - offset.y - cy) / (scale * size.height) + 0.5f).coerceIn(0f, 1f)
+                                // Actual drag → save new position (image-relative)
+                                val cW = size.width.toFloat()
+                                val cH = size.height.toFloat()
+                                val rect = mapImageRect(cW, cH, map.widthPx, map.heightPx)
+                                val newRelX = screenToRel(draggingPos.x, rect.left, rect.width, cW, scale, offset.x).coerceIn(0f, 1f)
+                                val newRelY = screenToRel(draggingPos.y, rect.top, rect.height, cH, scale, offset.y).coerceIn(0f, 1f)
                                 onDragEnd(snapId, newRelX, newRelY)
                             }
                             draggingId = null
@@ -703,9 +721,9 @@ private fun MapCanvas(
             placedSnapshots.forEach { sp ->
                 val isDragging = sp.snapshot.id == draggingId
                 val x = if (isDragging) draggingPos.x
-                        else size.width  * (0.5f + scale * (sp.mapX - 0.5f)) + offset.x
+                        else (imgLeft + sp.mapX * imgW - size.width  / 2f) * scale + size.width  / 2f + offset.x
                 val y = if (isDragging) draggingPos.y
-                        else size.height * (0.5f + scale * (sp.mapY - 0.5f)) + offset.y
+                        else (imgTop  + sp.mapY * imgH - size.height / 2f) * scale + size.height / 2f + offset.y
 
                 val pinColor = when {
                     sp.maxRssi >= -65 -> Color(0xFF27AE60)
@@ -744,8 +762,8 @@ private fun MapCanvas(
                         matchApByBssidOrName(ap, sp.snapshot.connectedBssid, sp.snapshot.connectedApName)
                     } ?: return@forEach
 
-                    val sx = size.width  * (0.5f + scale * (sp.mapX - 0.5f)) + offset.x
-                    val sy = size.height * (0.5f + scale * (sp.mapY - 0.5f)) + offset.y
+                    val sx = (imgLeft + sp.mapX * imgW - size.width  / 2f) * scale + size.width  / 2f + offset.x
+                    val sy = (imgTop  + sp.mapY * imgH - size.height / 2f) * scale + size.height / 2f + offset.y
                     val ax = (imgLeft + connectedAp.mapX * imgW - size.width  / 2f) * scale + size.width  / 2f + offset.x
                     val ay = (imgTop  + connectedAp.mapY * imgH - size.height / 2f) * scale + size.height / 2f + offset.y
 

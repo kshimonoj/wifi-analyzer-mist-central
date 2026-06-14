@@ -7,6 +7,7 @@ import io.ktor.client.engine.android.Android
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logging
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -155,6 +156,10 @@ class ArubaApiClient @Inject constructor(
     private var accessToken: String = ""
     private var tokenExpiresAt: Long = 0L
 
+    // Set by configure() when credentials actually change; ensureValidToken()
+    // consumes it to drop the persisted token before falling back to it.
+    private var credentialsChanged: Boolean = false
+
     // Used for BSSID API calls (JSON responses)
     private val http = HttpClient(Android) {
         install(ContentNegotiation) {
@@ -195,9 +200,16 @@ class ArubaApiClient @Inject constructor(
 
     fun configure(clientId: String, clientSecret: String, cluster: String) {
         if (this.clientId != clientId || this.clientSecret != clientSecret || this.baseUrl != "https://$cluster") {
-            // Credentials changed — invalidate token
+            // Credentials changed — invalidate the in-memory token immediately.
             tokenExpiresAt = 0L
             accessToken = ""
+            // Only flag the persisted token for clearing when we actually had a
+            // previous credential value (i.e. a real change), not on the first
+            // configure() after process start — there the in-memory creds are
+            // empty but a still-valid persisted token may legitimately be reused.
+            if (this.clientId.isNotEmpty() || this.clientSecret.isNotEmpty()) {
+                credentialsChanged = true
+            }
         }
         this.clientId = clientId
         this.clientSecret = clientSecret
@@ -205,6 +217,18 @@ class ArubaApiClient @Inject constructor(
     }
 
     private suspend fun ensureValidToken() {
+        // Credentials changed since the last configure() — drop the persisted token
+        // before the DataStore fallback can reuse a now-invalid one. Done here (a
+        // suspend context) to avoid racing the DataStore read below.
+        if (credentialsChanged) {
+            credentialsChanged = false
+            accessToken    = ""
+            tokenExpiresAt = 0L
+            settingsRepository.setArubaAccessToken("")
+            settingsRepository.setArubaTokenExpiresAt(0L)
+            Log.d(TAG, "Credentials changed — cleared persisted token")
+        }
+
         // In-memory fast path
         if (accessToken.isNotEmpty() && System.currentTimeMillis() < tokenExpiresAt - 60_000L) return
 
@@ -266,10 +290,31 @@ class ArubaApiClient @Inject constructor(
         ensureValidToken()
     }
 
+    /**
+     * Authenticated GET with one-shot 401 auto-recovery. If the server rejects the
+     * current token with 401 (e.g. it was invalidated server-side while still
+     * appearing unexpired locally), forces a single fresh token fetch and retries
+     * exactly once. A second 401 is surfaced to the caller as a real auth error.
+     */
+    private suspend fun authedGet(url: String, block: HttpRequestBuilder.() -> Unit = {}): HttpResponse {
+        var resp = http.get(url) {
+            header("Authorization", "Bearer $accessToken")
+            block()
+        }
+        if (resp.status.value == 401) {
+            Log.w(TAG, "401 from $url — forcing token refresh and retrying once")
+            forceRefreshToken()
+            resp = http.get(url) {
+                header("Authorization", "Bearer $accessToken")
+                block()
+            }
+        }
+        return resp
+    }
+
     suspend fun getSites(): ArubaResult<List<ArubaSite>> = runCatching {
         ensureValidToken()
-        val resp: HttpResponse = http.get("$baseUrl/network-monitoring/v1/sites-health") {
-            header("Authorization", "Bearer $accessToken")
+        val resp: HttpResponse = authedGet("$baseUrl/network-monitoring/v1/sites-health") {
             parameter("limit", 1000)
         }
         if (!resp.status.isSuccess()) return ArubaResult.Error(apiHttpError(resp.status.value))
@@ -284,8 +329,7 @@ class ArubaApiClient @Inject constructor(
         var offset = 0
         val limit  = 1000
         while (true) {
-            val resp: HttpResponse = http.get("$baseUrl/network-monitoring/v1/bssids") {
-                header("Authorization", "Bearer $accessToken")
+            val resp: HttpResponse = authedGet("$baseUrl/network-monitoring/v1/bssids") {
                 parameter("filter", "siteId eq $siteId")
                 parameter("limit",  limit)
                 parameter("offset", offset)
@@ -302,9 +346,7 @@ class ArubaApiClient @Inject constructor(
 
     suspend fun getBuildings(siteId: String): ArubaResult<List<ArubaBuilding>> = runCatching {
         ensureValidToken()
-        val resp: HttpResponse = http.get("$baseUrl/network-monitoring/v1/sitemaps/$siteId/buildings") {
-            header("Authorization", "Bearer $accessToken")
-        }
+        val resp: HttpResponse = authedGet("$baseUrl/network-monitoring/v1/sitemaps/$siteId/buildings")
         if (!resp.status.isSuccess()) return ArubaResult.Error(apiHttpError(resp.status.value))
         val body = resp.body<ArubaBuildingsResponse>()
         Log.d(TAG, "Fetched ${body.items.size} buildings for siteId=$siteId")
@@ -313,8 +355,7 @@ class ArubaApiClient @Inject constructor(
 
     suspend fun getDeployedDevices(siteId: String, floorId: String): ArubaResult<List<ArubaDeployedDevice>> = runCatching {
         ensureValidToken()
-        val resp: HttpResponse = http.get("$baseUrl/network-monitoring/v1/sitemaps/$siteId/network-devices-deployed") {
-            header("Authorization", "Bearer $accessToken")
+        val resp: HttpResponse = authedGet("$baseUrl/network-monitoring/v1/sitemaps/$siteId/network-devices-deployed") {
             parameter("filter", "floorId eq '$floorId'")
         }
         if (!resp.status.isSuccess()) return ArubaResult.Error(apiHttpError(resp.status.value))
@@ -325,9 +366,7 @@ class ArubaApiClient @Inject constructor(
 
     suspend fun getFloorDetail(siteId: String, floorId: String): ArubaResult<ArubaFloorDetail> = runCatching {
         ensureValidToken()
-        val resp: HttpResponse = http.get("$baseUrl/network-monitoring/v1/sitemaps/$siteId/floors/$floorId") {
-            header("Authorization", "Bearer $accessToken")
-        }
+        val resp: HttpResponse = authedGet("$baseUrl/network-monitoring/v1/sitemaps/$siteId/floors/$floorId")
         if (!resp.status.isSuccess()) return ArubaResult.Error(apiHttpError(resp.status.value))
         ArubaResult.Success(resp.body<ArubaFloorDetail>())
     }.getOrElse { e -> ArubaResult.Error(networkError(e)) }
@@ -357,12 +396,17 @@ class ArubaApiClient @Inject constructor(
     suspend fun testConnection(clientId: String, clientSecret: String, cluster: String): ArubaResult<Int> =
         runCatching {
             configure(clientId, clientSecret, cluster)
-            ensureValidToken()
+            // A connection test verifies "are these credentials valid right now?",
+            // so never trust a cached/persisted token — always fetch a fresh one.
+            forceRefreshToken()
             when (val result = getAllBssids()) {
                 is ArubaResult.Success -> ArubaResult.Success(result.data.size)
                 is ArubaResult.Error   -> ArubaResult.Error(result.message)
             }
-        }.getOrElse { e -> ArubaResult.Error(networkError(e)) }
+        }.getOrElse { e ->
+            Log.e(TAG, "testConnection failed", e)
+            ArubaResult.Error(networkError(e))
+        }
 
     suspend fun getAllBssids(): ArubaResult<List<ArubaBssid>> = runCatching {
         ensureValidToken()
@@ -370,8 +414,7 @@ class ArubaApiClient @Inject constructor(
         var offset = 0
         val limit  = 1000
         while (true) {
-            val resp: HttpResponse = http.get("$baseUrl/network-monitoring/v1/bssids") {
-                header("Authorization", "Bearer $accessToken")
+            val resp: HttpResponse = authedGet("$baseUrl/network-monitoring/v1/bssids") {
                 parameter("limit",  limit)
                 parameter("offset", offset)
             }

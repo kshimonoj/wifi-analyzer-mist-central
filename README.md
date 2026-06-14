@@ -81,6 +81,19 @@ Shows real-time graphs for the currently connected AP: RSSI, TX/RX speed, and ch
 #### 🗺️ Map
 Imports a floor map (from Mist API, Aruba Central API, or a local file), plots AP locations, and lets you place snapshots on the map by tapping. Connection lines link each snapshot to its connected AP. This is the core of the field survey workflow.
 
+**Top bar icons** (left to right):
+
+| Icon | Function |
+|------|----------|
+| **Select** (dropdown) | Choose or switch the floor map to display. The currently selected site/floor is shown above (e.g. "Home - Home6F"). |
+| **Nine-dot icon** | Fetch the floor map and AP location data. |
+| **Router icon** | Fetch AP location data. |
+| **Link / chain icon** | Toggle connection lines on/off — the lines linking each snapshot to the AP it was connected to. |
+| **Sync** | Sync the AP info and map data for the current site/floor to the latest state. |
+| **Download** (down arrow) | Export the survey data — bundles the floor map, AP locations, and all snapshots into a ZIP for analysis in the web analyzer. |
+
+> Note: The exact behavior of the nine-dot and router icons cannot be fully distinguished from the UI alone; the descriptions above are approximate.
+
 <!-- SCREENSHOT: Map screen — place screenshot of the floor map with placed snapshots here -->
 <p align="center">
   <img src="docs/images/map.png" alt="Map screen 1" width="300">

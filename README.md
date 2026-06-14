@@ -73,7 +73,9 @@ Shows real-time graphs for the currently connected AP: RSSI, TX/RX speed, and ch
 
 <!-- SCREENSHOT: Monitor screen — place screenshot of the monitor graphs here -->
 <p align="center">
-  <img src="docs/images/monitor.png" alt="Monitor screen" width="300">
+  <img src="docs/images/monitor.png" alt="Monitor screen 1" width="240">
+  <img src="docs/images/monitor2.png" alt="Monitor screen 2" width="240">
+  <img src="docs/images/monitor3.png" alt="Monitor screen 3" width="240">
 </p>
 
 #### 🗺️ Map
@@ -81,7 +83,8 @@ Imports a floor map (from Mist API, Aruba Central API, or a local file), plots A
 
 <!-- SCREENSHOT: Map screen — place screenshot of the floor map with placed snapshots here -->
 <p align="center">
-  <img src="docs/images/map.png" alt="Map screen" width="300">
+  <img src="docs/images/map.png" alt="Map screen 1" width="300">
+  <img src="docs/images/map2.png" alt="Map screen 2" width="300">
 </p>
 
 #### ⚙️ Settings
@@ -89,7 +92,9 @@ Configure Mist and Aruba Central API credentials, select cloud region/cluster, a
 
 <!-- SCREENSHOT: Settings screen — place screenshot of the settings screen here -->
 <p align="center">
-  <img src="docs/images/settings.png" alt="Settings screen" width="300">
+  <img src="docs/images/settings.png" alt="Settings screen 1" width="240">
+  <img src="docs/images/settings2.png" alt="Settings screen 2" width="240">
+  <img src="docs/images/settings3.png" alt="Settings screen 3" width="240">
 </p>
 
 ### Typical Survey Workflow
